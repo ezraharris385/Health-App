@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS session_sets (
   reps INTEGER NOT NULL DEFAULT 0,
   weight REAL,
   rpe REAL,
+  duration_seconds REAL,             -- seconds of timed work (e.g. planks)
   notes TEXT NOT NULL DEFAULT ''
 );
 
@@ -298,6 +299,18 @@ CREATE INDEX IF NOT EXISTS idx_agent_memory_agent ON agent_memory(agent);
 
 export function applySchema(): void {
   db.exec(SCHEMA_SQL);
+  // In-place migrations for databases created before a column existed. Each is
+  // guarded so re-running is a silent no-op on already-upgraded databases, and
+  // uses only the engine-neutral prepare/get + exec surface (works identically
+  // with better-sqlite3 and sql.js).
+  const hasDurationSeconds = db
+    .prepare(
+      "SELECT COUNT(*) AS c FROM pragma_table_info('session_sets') WHERE name = 'duration_seconds'",
+    )
+    .get() as { c: number };
+  if (!hasDurationSeconds.c) {
+    db.exec("ALTER TABLE session_sets ADD COLUMN duration_seconds REAL");
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -66,10 +66,14 @@ everything, including the agents' memories and conversations.
 
 ## The segments
 
-- **Workout** — exercise library, workout plans with a weekly schedule, session/set logging
-  with per-exercise performance charts, and a walks/runs log (run/jog/walk/interval,
-  distance, intensity, auto-estimated run-vs-walk step splits with a manual override, and a
-  free-text "how it went" report the coach uses for analysis).
+- **Workout** — exercise library, workout plans with a weekly schedule, and session logging
+  two ways: live set-by-set, or a guided grid that records a whole finished workout (only
+  what you actually did vs the plan-day template, including timed work like planks) in one
+  save — plus per-exercise performance charts.
+- **Cardio** — its own tab (still coached by the workout agent and counted in the workout
+  score): a walks/runs log (run/jog/walk/interval, distance, intensity, auto-estimated
+  run-vs-walk step splits with a manual override, and a free-text "how it went" report the
+  coach uses for analysis) with weekly distance/steps tiles and history charts.
 - **Nutrition** — your food library (macros + micronutrients), per-meal daily log, calorie &
   macro tracking vs goals with 30-day history, in-depth water tracking, and daily weight with
   trend charts.

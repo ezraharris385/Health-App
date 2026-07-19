@@ -9,7 +9,14 @@
  */
 import { useEffect, useReducer, useRef, useState } from "react";
 import { agentsApi } from "../api/agents";
-import { clearChatTurn, getChatTurn, sendChat, subscribeChat } from "../chat/runner";
+import {
+  clearChatTurn,
+  getChatTurn,
+  getLastConversationId,
+  rememberConversationId,
+  sendChat,
+  subscribeChat,
+} from "../chat/runner";
 import type { AgentConversation, AgentName, ChatMessage } from "@shared/types";
 
 export function AgentChat(props: {
@@ -21,7 +28,11 @@ export function AgentChat(props: {
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [conversations, setConversations] = useState<AgentConversation[]>([]);
-  const [conversationId, setConversationId] = useState<number | undefined>(undefined);
+  // Start from the agent's last-selected conversation — another page's card for
+  // the same agent may have consumed a turn (and its outcome) since we unmounted.
+  const [conversationId, setConversationId] = useState<number | undefined>(() =>
+    getLastConversationId(props.agent),
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +67,10 @@ export function AgentChat(props: {
     } else {
       setMessages([]);
     }
+    // Keep the runner's per-agent memory in sync so the next card mounted for
+    // this agent (possibly on another page) restores the same conversation.
+    rememberConversationId(props.agent, conversationId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
   // Consume a settled turn: apply its outcome exactly once, whichever card

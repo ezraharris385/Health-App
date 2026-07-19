@@ -107,6 +107,7 @@ function mapSet(r: any): SessionSet {
     reps: r.reps,
     weight: r.weight,
     rpe: r.rpe,
+    durationSeconds: r.duration_seconds,
     notes: r.notes,
     exerciseName: r.exercise_name,
   };
@@ -151,7 +152,9 @@ export interface PerformancePoint {
   volume: number;
   bestWeight: number | null;
   bestReps: number;
-  /** e.g. "100×5" or "BW×12" */
+  /** the best set's timed work in seconds (e.g. plank holds), if any */
+  bestDurationSeconds: number | null;
+  /** e.g. "100×5", "BW×12", or "BW×60s" for time-only sets */
   bestSet: string;
   /** Epley estimated 1RM from the best weighted set */
   est1RM: number | null;
@@ -207,6 +210,17 @@ function normDate(v: unknown): string {
   if (v === undefined || v === null || v === "") return todayStr();
   if (!isValidDateStr(v)) throw new Error("date must be a YYYY-MM-DD string");
   return v;
+}
+
+/** Seconds of timed work per set (e.g. planks): integer 1..21600, or null. */
+function normDurationSeconds(v: unknown): number | null {
+  const n = optNum(v, "durationSeconds");
+  if (n === null) return null;
+  const seconds = Math.round(n);
+  if (seconds < 1 || seconds > 21600) {
+    throw new Error("durationSeconds must be between 1 and 21600");
+  }
+  return seconds;
 }
 
 const CARDIO_TYPES: CardioType[] = ["run", "jog", "walk", "interval"];
@@ -618,7 +632,7 @@ export function listSessions(opts: { days?: number; date?: string } = {}): Sessi
       .prepare("SELECT id FROM workout_sessions WHERE date = ? ORDER BY id DESC")
       .all(opts.date) as { id: number }[];
   } else {
-    const days = Math.min(365, Math.max(1, Math.round(opts.days ?? 30)));
+    const days = Math.min(3650, Math.max(1, Math.round(opts.days ?? 30)));
     rows = db
       .prepare("SELECT id FROM workout_sessions WHERE date >= ? ORDER BY date DESC, id DESC")
       .all(daysAgoStr(days - 1)) as { id: number }[];
@@ -652,6 +666,101 @@ export function createSession(input: {
     )
     .run(date, planDayId, optStr(input.name).trim() || defaultName, optStr(input.notes), new Date().toISOString());
   return getSessionFull(Number(info.lastInsertRowid));
+}
+
+export interface FullSessionEntryInput {
+  exerciseId?: unknown;
+  exerciseName?: unknown;
+  /** identical sets to record for this exercise (1-20, default 1) */
+  sets?: unknown;
+  reps: unknown;
+  weight?: unknown;
+  rpe?: unknown;
+  durationSeconds?: unknown;
+  notes?: unknown;
+}
+
+export interface FullSessionInput {
+  date?: unknown;
+  planDayId?: unknown;
+  name?: unknown;
+  notes?: unknown;
+  entries: FullSessionEntryInput[];
+}
+
+/**
+ * Record a complete, already-finished workout in one call: creates the session
+ * (started_at = completed_at = now) and, per entry, `sets` identical set rows.
+ * Entries list only what was actually performed — skipped template exercises
+ * are simply absent. Everything is validated before any row is written; the
+ * writes (including on-the-fly exercise creation by name) run in one
+ * transaction.
+ */
+export function logFullSession(input: FullSessionInput): SessionFull {
+  const date = normDate(input?.date);
+  let planDayId: number | null = null;
+  let defaultName = "Workout";
+  if (input.planDayId !== undefined && input.planDayId !== null && input.planDayId !== "") {
+    planDayId = reqNum(input.planDayId, "planDayId", 1);
+    const dayRow = db
+      .prepare(
+        `SELECT pd.name AS day_name, wp.name AS plan_name FROM plan_days pd
+         JOIN workout_plans wp ON wp.id = pd.plan_id WHERE pd.id = ?`,
+      )
+      .get(planDayId) as { day_name: string; plan_name: string } | undefined;
+    if (!dayRow) throw notFound(`Plan day #${planDayId}`);
+    defaultName = `${dayRow.plan_name} — ${dayRow.day_name}`;
+  }
+  const name = optStr(input.name).trim() || defaultName;
+  const notes = optStr(input.notes);
+  if (!Array.isArray(input.entries) || input.entries.length === 0) {
+    throw new Error("entries must be a non-empty array of performed exercises");
+  }
+  const prepared = input.entries.map((entry, i) => {
+    const label = `entries[${i}]`;
+    // Reference must resolve: an existing id, or a name (created on write).
+    if (entry.exerciseId !== undefined && entry.exerciseId !== null) {
+      getExercise(reqNum(entry.exerciseId, `${label}.exerciseId`, 1)); // throws if missing
+    } else {
+      reqName(entry.exerciseName, `${label}.exerciseName (or exerciseId)`);
+    }
+    const sets =
+      entry.sets !== undefined && entry.sets !== null && entry.sets !== ""
+        ? Math.round(reqNum(entry.sets, `${label}.sets`, 1, 20))
+        : 1;
+    const reps = Math.round(reqNum(entry.reps, `${label}.reps`, 0, 1000));
+    const weight = optNum(entry.weight, `${label}.weight`);
+    if (weight !== null && weight < 0) throw new Error(`${label}.weight must be >= 0`);
+    const rpe = optNum(entry.rpe, `${label}.rpe`);
+    if (rpe !== null && (rpe < 1 || rpe > 10)) {
+      throw new Error(`${label}.rpe must be between 1 and 10`);
+    }
+    const durationSeconds = normDurationSeconds(entry.durationSeconds);
+    if (reps === 0 && durationSeconds === null) {
+      throw new Error(`${label}: reps 0 is only allowed for timed work — provide durationSeconds`);
+    }
+    return { entry, sets, reps, weight, rpe, durationSeconds, notes: optStr(entry.notes) };
+  });
+  const sessionId = db.transaction((): number => {
+    const now = new Date().toISOString();
+    const info = db
+      .prepare(
+        "INSERT INTO workout_sessions (date, plan_day_id, name, notes, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(date, planDayId, name, notes, now, now);
+    const sid = Number(info.lastInsertRowid);
+    const insertSet = db.prepare(
+      "INSERT INTO session_sets (session_id, exercise_id, set_number, reps, weight, rpe, duration_seconds, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    for (const p of prepared) {
+      const exerciseId = resolveExerciseId(p.entry);
+      for (let setNumber = 1; setNumber <= p.sets; setNumber++) {
+        insertSet.run(sid, exerciseId, setNumber, p.reps, p.weight, p.rpe, p.durationSeconds, p.notes);
+      }
+    }
+    return sid;
+  })();
+  return getSessionFull(sessionId);
 }
 
 export function updateSession(
@@ -690,6 +799,7 @@ export function addSet(
     reps: unknown;
     weight?: unknown;
     rpe?: unknown;
+    durationSeconds?: unknown;
     notes?: unknown;
   },
 ): SessionSet {
@@ -700,6 +810,7 @@ export function addSet(
   if (weight !== null && weight < 0) throw new Error("weight must be >= 0");
   const rpe = optNum(input.rpe, "rpe");
   if (rpe !== null && (rpe < 1 || rpe > 10)) throw new Error("rpe must be between 1 and 10");
+  const durationSeconds = normDurationSeconds(input.durationSeconds);
   const setNumber =
     input.setNumber !== undefined
       ? reqNum(input.setNumber, "setNumber", 1)
@@ -712,9 +823,18 @@ export function addSet(
         ).c + 1);
   const info = db
     .prepare(
-      "INSERT INTO session_sets (session_id, exercise_id, set_number, reps, weight, rpe, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO session_sets (session_id, exercise_id, set_number, reps, weight, rpe, duration_seconds, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .run(sessionId, exerciseId, setNumber, Math.round(reps), weight, rpe, optStr(input.notes));
+    .run(
+      sessionId,
+      exerciseId,
+      setNumber,
+      Math.round(reps),
+      weight,
+      rpe,
+      durationSeconds,
+      optStr(input.notes),
+    );
   const row = db
     .prepare(
       `SELECT ss.*, e.name AS exercise_name FROM session_sets ss
@@ -726,18 +846,30 @@ export function addSet(
 
 export function updateSet(
   id: number,
-  patch: { reps?: unknown; weight?: unknown; rpe?: unknown; notes?: unknown; setNumber?: unknown },
+  patch: {
+    reps?: unknown;
+    weight?: unknown;
+    rpe?: unknown;
+    durationSeconds?: unknown;
+    notes?: unknown;
+    setNumber?: unknown;
+  },
 ): SessionSet {
   const row = db.prepare("SELECT * FROM session_sets WHERE id = ?").get(id) as any;
   if (!row) throw notFound(`Set #${id}`);
   const rpe = patch.rpe !== undefined ? optNum(patch.rpe, "rpe") : row.rpe;
   if (rpe !== null && (rpe < 1 || rpe > 10)) throw new Error("rpe must be between 1 and 10");
+  const weight = patch.weight !== undefined ? optNum(patch.weight, "weight") : row.weight;
+  if (weight !== null && weight < 0) throw new Error("weight must be >= 0");
   db.prepare(
-    "UPDATE session_sets SET reps = ?, weight = ?, rpe = ?, notes = ?, set_number = ? WHERE id = ?",
+    "UPDATE session_sets SET reps = ?, weight = ?, rpe = ?, duration_seconds = ?, notes = ?, set_number = ? WHERE id = ?",
   ).run(
     patch.reps !== undefined ? Math.round(reqNum(patch.reps, "reps", 0, 1000)) : row.reps,
-    patch.weight !== undefined ? optNum(patch.weight, "weight") : row.weight,
+    weight,
     rpe,
+    patch.durationSeconds !== undefined
+      ? normDurationSeconds(patch.durationSeconds)
+      : row.duration_seconds,
     patch.notes !== undefined ? optStr(patch.notes) : row.notes,
     patch.setNumber !== undefined ? reqNum(patch.setNumber, "setNumber", 1) : row.set_number,
     id,
@@ -765,28 +897,45 @@ export function getPerformance(exerciseId: number, days = 180): ExercisePerforma
   const clamped = Math.min(730, Math.max(7, Math.round(days)));
   const rows = db
     .prepare(
-      `SELECT ss.reps, ss.weight, ws.date FROM session_sets ss
+      `SELECT ss.reps, ss.weight, ss.duration_seconds, ws.date FROM session_sets ss
        JOIN workout_sessions ws ON ws.id = ss.session_id
        WHERE ss.exercise_id = ? AND ws.date >= ?
        ORDER BY ws.date`,
     )
-    .all(exerciseId, daysAgoStr(clamped - 1)) as { reps: number; weight: number | null; date: string }[];
+    .all(exerciseId, daysAgoStr(clamped - 1)) as {
+    reps: number;
+    weight: number | null;
+    duration_seconds: number | null;
+    date: string;
+  }[];
 
-  const byDate = new Map<string, { reps: number; weight: number | null }[]>();
+  const byDate = new Map<
+    string,
+    { reps: number; weight: number | null; durationSeconds: number | null }[]
+  >();
   for (const r of rows) {
     const list = byDate.get(r.date) ?? [];
-    list.push({ reps: r.reps, weight: r.weight });
+    list.push({ reps: r.reps, weight: r.weight, durationSeconds: r.duration_seconds });
     byDate.set(r.date, list);
   }
 
   const points: PerformancePoint[] = [...byDate.entries()].map(([date, sets]) => {
     let volume = 0;
-    let best: { reps: number; weight: number | null } = sets[0];
+    let best = sets[0];
     for (const s of sets) {
       volume += s.reps * (s.weight ?? 0);
       const bw = best.weight ?? -1;
       const sw = s.weight ?? -1;
-      if (sw > bw || (sw === bw && s.reps > best.reps)) best = s;
+      // Heaviest set wins; ties break on reps, then on timed work (planks).
+      if (
+        sw > bw ||
+        (sw === bw &&
+          (s.reps > best.reps ||
+            (s.reps === best.reps &&
+              (s.durationSeconds ?? 0) > (best.durationSeconds ?? 0))))
+      ) {
+        best = s;
+      }
     }
     const est1RM =
       best.weight !== null && best.reps > 0
@@ -798,7 +947,12 @@ export function getPerformance(exerciseId: number, days = 180): ExercisePerforma
       volume: Math.round(volume * 10) / 10,
       bestWeight: best.weight,
       bestReps: best.reps,
-      bestSet: `${best.weight !== null ? best.weight : "BW"}×${best.reps}`,
+      bestDurationSeconds: best.durationSeconds,
+      bestSet: `${best.weight !== null ? best.weight : "BW"}×${
+        best.reps === 0 && best.durationSeconds !== null
+          ? `${best.durationSeconds}s`
+          : best.reps
+      }`,
       est1RM,
     };
   });

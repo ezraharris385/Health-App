@@ -102,6 +102,7 @@ export interface SessionSet {
   reps: number;
   weight: number | null;
   rpe: number | null; // 1-10 rate of perceived exertion
+  durationSeconds: number | null; // seconds of timed work (e.g. planks)
   notes: string;
   exerciseName?: string;
 }

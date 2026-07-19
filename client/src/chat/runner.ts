@@ -64,6 +64,26 @@ export function clearChatTurn(agent: AgentName): void {
   if (t && t.status !== "running") turns.delete(agent);
 }
 
+/**
+ * Last conversation each agent's chat card had selected (undefined = "New
+ * conversation"). More than one page can host a card for the same agent (the
+ * Workout and Cardio pages both chat with "workout"), so a settled turn may be
+ * consumed — and cleared — by a card on a different page than the one that sent
+ * it. Remembering the selection here lets a remounting card restore that
+ * conversation instead of falling back to an empty "New conversation", which
+ * would hide the reply until the user re-picked it from the dropdown.
+ */
+const lastConversationIds = new Map<AgentName, number | undefined>();
+
+export function getLastConversationId(agent: AgentName): number | undefined {
+  return lastConversationIds.get(agent);
+}
+
+/** Record the conversation a chat card is currently showing for its agent. */
+export function rememberConversationId(agent: AgentName, id: number | undefined): void {
+  lastConversationIds.set(agent, id);
+}
+
 /** Start a turn. No-op if one is already running for this agent. */
 export function sendChat(
   agent: AgentName,

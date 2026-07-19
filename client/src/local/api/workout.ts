@@ -32,6 +32,7 @@ import {
   listExercises,
   listPlans,
   listSessions,
+  logFullSession,
   updateCardio,
   updateExercise,
   updatePlan,
@@ -136,6 +137,7 @@ export function registerRoutesWorkout(): void {
   );
   get("/api/workout/sessions/:id", ({ params }) => run(() => getSessionFull(idParam(params))));
   post("/api/workout/sessions", ({ body }) => run(() => createSession(body ?? {})));
+  post("/api/workout/sessions/full", ({ body }) => run(() => logFullSession(body ?? {})));
   put("/api/workout/sessions/:id", ({ params, body }) =>
     run(() => updateSession(idParam(params), body ?? {})),
   );

@@ -24,6 +24,7 @@ import {
   listExercises,
   listPlans,
   listSessions,
+  logFullSession,
   resolveExerciseId,
   updateCardio,
   updateExercise,
@@ -284,7 +285,7 @@ const tools: ToolDef[] = [
   {
     name: "log_session",
     description:
-      "Create a lifting session and optionally log its sets in the same call. Pass planDayId to start from a scheduled plan day (name auto-fills). Each set needs exerciseId or exerciseName plus reps; weight and rpe (1-10) are optional. Set completed=true when the workout is finished (typical when logging after the fact). Returns the full session with sets.",
+      "Open a LIVE lifting session for mid-workout, set-by-set logging (optionally seeding its first sets); keep appending with add_sets as the workout happens. For a workout that is already FINISHED, use log_full_session instead. Pass planDayId to start from a scheduled plan day (name auto-fills). Each set needs exerciseId or exerciseName plus reps; weight, rpe (1-10), and durationSeconds (seconds of timed work, e.g. planks) are optional. Set completed=true only if the session is already over. Returns the full session with sets.",
     input_schema: {
       type: "object",
       properties: {
@@ -302,6 +303,10 @@ const tools: ToolDef[] = [
               reps: { type: "number" },
               weight: { type: "number" },
               rpe: { type: "number", description: "1-10 rate of perceived exertion" },
+              durationSeconds: {
+                type: "number",
+                description: "Seconds of timed work for the set (1-21600)",
+              },
               notes: { type: "string" },
             },
             required: ["reps"],
@@ -329,9 +334,52 @@ const tools: ToolDef[] = [
       ),
   },
   {
+    name: "log_full_session",
+    description:
+      "Log a COMPLETE workout in one call — typically what the user actually did against a plan-day template. Pass planDayId when they followed a scheduled day (name auto-fills). Include ONLY the exercises actually performed, each with its real sets count and per-set reps/weight/intensity (rpe 1-10)/durationSeconds for timed work; omit skipped template exercises entirely — extra non-template exercises are welcome. The session is recorded as already completed. Returns the full session with sets.",
+    input_schema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD (default today)" },
+        planDayId: {
+          type: "number",
+          description: "Plan day the workout followed; omit for a freestyle workout",
+        },
+        name: { type: "string", description: "Session name (defaults from the plan day, else 'Workout')" },
+        notes: { type: "string" },
+        entries: {
+          type: "array",
+          description:
+            "One entry per exercise ACTUALLY performed; `sets` identical set rows are recorded per entry",
+          items: {
+            type: "object",
+            properties: {
+              ...exerciseRefProps,
+              sets: { type: "number", description: "Sets performed (1-20, default 1)" },
+              reps: {
+                type: "number",
+                description: "Reps per set (0-1000; 0 only for time-only work with durationSeconds)",
+              },
+              weight: { type: "number", description: "Working weight (>= 0); omit for bodyweight" },
+              rpe: { type: "number", description: "Intensity: 1-10 rate of perceived exertion" },
+              durationSeconds: {
+                type: "number",
+                description: "Seconds of timed work per set (1-21600), e.g. 60 for a 1-minute plank",
+              },
+              notes: { type: "string" },
+            },
+            required: ["reps"],
+          },
+        },
+      },
+      required: ["entries"],
+    },
+    run: (input: any) => JSON.stringify(logFullSession(input)),
+  },
+  {
     name: "add_sets",
     description:
-      "Append sets to an existing session (e.g. mid-workout logging: 'bench 100kg for 8'). Each set needs exerciseId or exerciseName plus reps; weight/rpe optional. Set numbers auto-increment per exercise.",
+      "Append sets to an existing session (e.g. mid-workout logging: 'bench 100kg for 8'). Each set needs exerciseId or exerciseName plus reps; weight/rpe/durationSeconds (seconds of timed work, e.g. planks) optional. Set numbers auto-increment per exercise.",
     input_schema: {
       type: "object",
       properties: {
@@ -345,6 +393,10 @@ const tools: ToolDef[] = [
               reps: { type: "number" },
               weight: { type: "number" },
               rpe: { type: "number" },
+              durationSeconds: {
+                type: "number",
+                description: "Seconds of timed work for the set (1-21600)",
+              },
               notes: { type: "string" },
             },
             required: ["reps"],
@@ -479,6 +531,7 @@ How you work:
 - Read before you write: call list_exercises / list_plans / list_sessions / get_week_schedule to see current state before creating or editing anything. Never create duplicate exercises.
 - When the user asks for a program, build it in ONE create_full_plan call — plan, weekly days (dayOfWeek 0=Sunday..6=Saturday), and ordered exercises with sets, reps, target weight, and rest. Pick sensible defaults from their history via get_performance instead of guessing.
 - Always write form cues into each exercise's instructions field, and quote those instructions when explaining how to perform a movement (setup, execution, common mistakes).
+- When the user reports a FINISHED workout (especially one from a plan day), prefer log_full_session — one call records the whole completed session. First ask what they ACTUALLY did versus the template; never assume template sets/reps/weights were performed unless the user says so. Include only exercises actually done (skipped template exercises are simply omitted; extras are fine), each with real sets × reps, weight, intensity (rpe 1-10), and durationSeconds for timed work like planks. Keep log_session/add_sets for live set-by-set logging mid-workout.
 - After logging anything, confirm concretely what was recorded ("Logged Bench 3×8 @ 80kg, RPE 8"). Confirm before destructive changes (deleting plans/exercises); prefer archiving plans.
 - Cardio: log with type, distance, duration, and intensity; steps are auto-estimated (run vs walked split) unless the user gives a device count to hardcode. ALWAYS ask for a short post-run report ("How did it feel? Pace, breathing, any aches?") and attach it with update_cardio — then actually use the reports (get_cardio_history) to analyze trends: pacing, recovery, recurring pains.
 - Coach progressive overload with numbers: use get_performance (volume, best set, estimated 1RM) to recommend next weights and detect stalls.

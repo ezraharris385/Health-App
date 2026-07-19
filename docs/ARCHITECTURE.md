@@ -29,14 +29,15 @@ client/src/chat/runner.ts    Module-level chat turn runner — turns keep runnin
                              AgentChat re-attaches/consumes outcomes on mount. Send through it, never fetch directly.
 client/src/api/http.ts   http.get/post/put/del + todayStr(). ApiError has .status/.message.
 client/src/pages/<Segment>/index.tsx  Page component  ← segment-owned
-client/src/App.tsx       Routing/nav. DO NOT EDIT.
+client/src/App.tsx       Routing/nav. DO NOT EDIT — except: the workout segment
+                         maintains the Cardio entry (the "/cardio" NAV item + route).
 ```
 
 ## Ownership (a segment implementation may ONLY create/modify)
 
 | Segment    | Files |
 |---|---|
-| workout    | `server/routes/workout.ts`, `shared/data/stores/workout.ts`, `shared/agents/defs/workout.ts`, `client/src/pages/Workout/**`, `client/src/pages/Cardio/**`, `client/src/api/workout.ts`, `client/src/local/api/workout.ts` |
+| workout    | `server/routes/workout.ts`, `shared/data/stores/workout.ts`, `shared/agents/defs/workout.ts`, `client/src/pages/Workout/**`, `client/src/pages/Cardio/**`, `client/src/api/workout.ts`, `client/src/local/api/workout.ts`, `client/src/App.tsx` (the "/cardio" nav entry + route only) |
 | nutrition  | `server/routes/nutrition.ts`, `server/agents/defs/nutrition.ts`, `client/src/pages/Nutrition/**`, `client/src/api/nutrition.ts` |
 | sleep      | `server/routes/sleep.ts`, `server/agents/defs/sleep.ts`, `client/src/pages/Sleep/**`, `client/src/api/sleep.ts` |
 | vitamins   | `server/routes/vitamins.ts`, `server/agents/defs/vitamins.ts`, `client/src/pages/Vitamins/**`, `client/src/api/vitamins.ts` |

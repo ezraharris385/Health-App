@@ -32,6 +32,7 @@ import {
   listExercises,
   listPlans,
   listSessions,
+  logFullSession,
   updateCardio,
   updateExercise,
   updatePlan,
@@ -207,6 +208,12 @@ workoutRouter.post(
   "/sessions",
   guard((req, res) => {
     res.status(201).json(createSession(req.body ?? {}));
+  }),
+);
+workoutRouter.post(
+  "/sessions/full",
+  guard((req, res) => {
+    res.status(201).json(logFullSession(req.body ?? {}));
   }),
 );
 workoutRouter.put(

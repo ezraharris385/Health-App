@@ -1,6 +1,7 @@
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import DashboardPage from "./pages/Dashboard";
 import WorkoutPage from "./pages/Workout";
+import CardioPage from "./pages/Cardio";
 import NutritionPage from "./pages/Nutrition";
 import SleepPage from "./pages/Sleep";
 import VitaminsPage from "./pages/Vitamins";
@@ -10,6 +11,7 @@ import SettingsPage from "./pages/Settings";
 const NAV = [
   { to: "/dashboard", label: "Dashboard", color: "var(--series-1)" },
   { to: "/workout", label: "Workout", color: "var(--series-6)" },
+  { to: "/cardio", label: "Cardio", color: "var(--series-4)" },
   { to: "/nutrition", label: "Nutrition", color: "var(--series-2)" },
   { to: "/sleep", label: "Sleep", color: "var(--series-7)" },
   { to: "/vitamins", label: "Vitamins", color: "var(--series-5)" },
@@ -39,6 +41,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/workout" element={<WorkoutPage />} />
+          <Route path="/cardio" element={<CardioPage />} />
           <Route path="/nutrition" element={<NutritionPage />} />
           <Route path="/sleep" element={<SleepPage />} />
           <Route path="/vitamins" element={<VitaminsPage />} />

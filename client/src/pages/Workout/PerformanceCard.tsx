@@ -44,11 +44,14 @@ export function PerformanceCard(props: {
         volume: p.volume,
         best: p.bestWeight,
         est1RM: p.est1RM,
+        hold: p.bestDurationSeconds,
       })),
     [perf],
   );
 
   const latest = perf?.points[perf.points.length - 1];
+  // Timed work (planks etc.) charts as best hold seconds — only when present.
+  const hasTimed = (perf?.points ?? []).some((p) => p.bestDurationSeconds !== null);
 
   return (
     <ChartCard
@@ -99,6 +102,7 @@ export function PerformanceCard(props: {
             series={[
               { key: "best", name: "Best set weight", color: SERIES[1] },
               { key: "est1RM", name: "Est. 1RM", color: SERIES[6] },
+              ...(hasTimed ? [{ key: "hold", name: "Best hold (s)", color: SERIES[3] }] : []),
             ]}
           />
           <Legend
@@ -106,6 +110,7 @@ export function PerformanceCard(props: {
               { name: "Volume (reps × weight)", color: SERIES[0] },
               { name: "Best set weight", color: SERIES[1] },
               { name: "Est. 1RM (Epley)", color: SERIES[6] },
+              ...(hasTimed ? [{ name: "Best hold (s)", color: SERIES[3] }] : []),
             ]}
           />
         </>

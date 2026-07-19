@@ -48,6 +48,9 @@ export interface PerformancePoint {
   volume: number;
   bestWeight: number | null;
   bestReps: number;
+  /** the best set's timed work in seconds (e.g. plank holds), if any */
+  bestDurationSeconds: number | null;
+  /** e.g. "100×5", "BW×12", or "BW×60s" for time-only sets */
   bestSet: string;
   est1RM: number | null;
 }
@@ -94,7 +97,34 @@ export interface SetInput {
   reps: number;
   weight?: number | null;
   rpe?: number | null;
+  /** seconds of timed work for the set (e.g. planks), 1-21600 */
+  durationSeconds?: number | null;
   notes?: string;
+}
+
+export interface FullSessionEntryInput {
+  exerciseId?: number;
+  exerciseName?: string;
+  /** identical sets to record for this exercise (1-20, default 1) */
+  sets?: number;
+  /** 0 is allowed only for time-only work (durationSeconds required then) */
+  reps: number;
+  weight?: number | null;
+  /** intensity, 1-10 */
+  rpe?: number | null;
+  /** seconds of timed work per set (e.g. planks), 1-21600 */
+  durationSeconds?: number | null;
+  notes?: string;
+}
+
+export interface FullSessionInput {
+  date?: string;
+  /** plan day the workout followed; omit/null for a freestyle session */
+  planDayId?: number | null;
+  name?: string;
+  notes?: string;
+  /** only the exercises actually performed — skipped template rows are omitted */
+  entries: FullSessionEntryInput[];
 }
 
 export interface CardioInput {
@@ -158,6 +188,7 @@ export const workoutApi = {
   session: (id: number) => http.get<SessionFull>(`${base}/sessions/${id}`),
   createSession: (input: { date?: string; planDayId?: number; name?: string; notes?: string }) =>
     http.post<SessionFull>(`${base}/sessions`, input),
+  sessionFull: (input: FullSessionInput) => http.post<SessionFull>(`${base}/sessions/full`, input),
   updateSession: (id: number, patch: { name?: string; notes?: string; date?: string }) =>
     http.put<SessionFull>(`${base}/sessions/${id}`, patch),
   completeSession: (id: number) => http.post<SessionFull>(`${base}/sessions/${id}/complete`),
