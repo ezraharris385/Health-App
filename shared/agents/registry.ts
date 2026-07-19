@@ -21,10 +21,13 @@ const SEGMENT_AGENTS: Record<Exclude<AgentName, "master">, AgentDef> = {
 };
 
 /**
- * Tool names that modify user data. Memory tools (save/update/delete_memory)
- * are deliberately not matched — recording learnings is always allowed.
+ * Tool names that modify user data. Covers every write verb used by the agent
+ * defs (read tools all start with get_/list_/search_). Memory tools
+ * (save/update/delete_memory) are excluded by the trailing lookahead —
+ * recording learnings is always allowed.
  */
-const WRITE_TOOL_RE = /^(create|update|delete|log|toggle|set|mark|add|archive)_(?!.*memory$)/;
+const WRITE_TOOL_RE =
+  /^(create|update|delete|log|toggle|set|mark|add|archive|save|remove|complete|start|end)_(?!.*memory$)/;
 
 const consultTool: ToolDef = {
   name: "consult_agent",

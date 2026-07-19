@@ -34,6 +34,13 @@ export function AgentChat(props: {
   useEffect(() => {
     agentsApi.status().then((s) => setEnabled(s.enabled)).catch(() => setEnabled(false));
     refreshConversations();
+    // If a turn for this agent is still running, restore the conversation it
+    // targets — a card remounted mid-turn must show the history the turn is
+    // appending to, not an empty "New conversation".
+    const running = getChatTurn(props.agent);
+    if (running?.status === "running" && running.conversationId) {
+      setConversationId(running.conversationId);
+    }
     // Re-attach to the in-flight/settled turn for this agent (if any) and
     // re-render whenever its state changes — even while this card is the one
     // that started it.
@@ -110,17 +117,23 @@ export function AgentChat(props: {
     if (!text || busy || enabled === false) return;
     setInput("");
     setError(null);
-    sendChat(props.agent, text, conversationId);
+    sendChat(props.agent, text, conversationId, messages[messages.length - 1]?.id);
   }
 
   // While a turn runs, show its user message as a pending bubble — unless the
-  // refetched history already contains it (it gets persisted as the turn runs).
-  const lastMessage = messages[messages.length - 1];
+  // refetched history already contains it (it gets persisted as the turn
+  // runs). Only messages persisted after the send count as "it": an identical
+  // message earlier in the conversation (a repeated "yes"/"thanks") must not
+  // suppress the bubble.
   const showPending =
     busy &&
     turn !== undefined &&
-    !(lastMessage && lastMessage.role === "user" && lastMessage.text === turn.text) &&
-    !messages.some((m) => m.role === "user" && m.text === turn.text);
+    !messages.some(
+      (m) =>
+        m.role === "user" &&
+        m.text === turn.text &&
+        (turn.sinceMessageId === undefined || m.id > turn.sinceMessageId),
+    );
 
   return (
     <div className="card">

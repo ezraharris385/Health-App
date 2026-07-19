@@ -314,11 +314,15 @@ async function runToolLoop(
 
       const results: Anthropic.ToolResultBlockParam[] = await Promise.all(
         toolUses.map(async (tu) => {
-          toolEvents.push(tu.name);
           const tool = toolByName.get(tu.name);
           try {
             if (!tool) throw new Error(`Unknown tool: ${tu.name}`);
             const result = await tool.run(tu.input);
+            // Record only after a successful run: a failed call changed
+            // nothing, and toolEvents drives the "specialist modified data"
+            // consultation note (and the UI's "used:" chips) — it must report
+            // outcomes, not attempts.
+            toolEvents.push(tu.name);
             return {
               type: "tool_result" as const,
               tool_use_id: tu.id,
@@ -460,7 +464,7 @@ export async function consultAgent(
   const messages: Anthropic.MessageParam[] = [
     {
       role: "user",
-      content: `<context date="${todayStr()}">\n${context}\n</context>\n\nYou are being consulted by the master health coordinator agent on behalf of the user. Answer with concrete, specific data and recommendations — your reply goes to another agent, not directly to the user, so be dense and factual.\n\nWrite discipline — you ADVISE, you do not act. During this consultation, do NOT create, log, update, toggle, archive, or delete any of the user's data unless the question above explicitly relays a direct instruction from the user to record something specific (e.g. "the user asked to log ..."). Recommending something is never a reason to write it: never create a supplement, food, plan, or routine you are merely suggesting, and never mark anything taken, eaten, or done because you recommended it — only the user's own report of what they actually did justifies a write. If acting would help, describe the exact write you WOULD make and let the coordinator put it to the user. (Your memory tools are always fine to use.)\n\nQuestion: ${question}`,
+      content: `<context date="${todayStr()}">\n${context}\n</context>\n\nYou are being consulted by the master health coordinator agent on behalf of the user. Answer with concrete, specific data and recommendations — your reply goes to another agent, not directly to the user, so be dense and factual.\n\nWrite discipline — you ADVISE, you do not act. During this consultation, do NOT create, save, log, update, toggle, mark, complete, start, end, archive, remove, or delete any of the user's data unless the question above explicitly relays a direct instruction from the user to record something specific (e.g. "the user asked to log ..."). Recommending something is never a reason to write it: never create a supplement, food, plan, or routine you are merely suggesting, never open or close a sleep log for the user, and never mark anything taken, eaten, or done because you recommended it — only the user's own report of what they actually did justifies a write. If acting would help, describe the exact write you WOULD make and let the coordinator put it to the user. (Your memory tools are always fine to use.)\n\nQuestion: ${question}`,
     },
   ];
   const { text, toolEvents } = await runToolLoop(

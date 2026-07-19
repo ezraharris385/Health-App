@@ -22,6 +22,12 @@ export interface ChatTurn {
   conversationId?: number;
   /** The user message this turn is delivering. */
   text: string;
+  /**
+   * Id of the last message already in the conversation when the turn started.
+   * Lets the UI tell the just-sent message (persisted with a higher id) apart
+   * from an identical message earlier in the history.
+   */
+  sinceMessageId?: number;
   status: "running" | "done" | "error";
   /** Set on success — the conversation the reply was persisted to. */
   resultConversationId?: number;
@@ -59,9 +65,14 @@ export function clearChatTurn(agent: AgentName): void {
 }
 
 /** Start a turn. No-op if one is already running for this agent. */
-export function sendChat(agent: AgentName, text: string, conversationId?: number): void {
+export function sendChat(
+  agent: AgentName,
+  text: string,
+  conversationId?: number,
+  sinceMessageId?: number,
+): void {
   if (turns.get(agent)?.status === "running") return;
-  const turn: ChatTurn = { agent, conversationId, text, status: "running" };
+  const turn: ChatTurn = { agent, conversationId, sinceMessageId, text, status: "running" };
   turns.set(agent, turn);
   notify(agent);
   agentsApi
