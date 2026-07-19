@@ -18,6 +18,20 @@ panels are disabled.
 
 For a production-style run: `npm run build && npm start` then open http://localhost:3001.
 
+## Using it on your phone
+
+The app is built phone-first: a bottom tab bar, touch-sized controls, and charts that fit
+small screens.
+
+1. Run `npm run build && npm start` on a computer (or home server) on your Wi-Fi.
+2. The server prints an `on your phone:` URL (your computer's LAN IP) — open it in your
+   phone's browser.
+3. Use **Add to Home Screen** — the app installs standalone (no browser chrome) with its
+   own icon.
+
+The server listens on all interfaces by default (`HOST=0.0.0.0`); it's intended for your
+own private network — don't port-forward it to the internet as there's no authentication.
+
 Data lives in `data/health.db` (SQLite). Back that one file up and you've backed up
 everything, including the agents' memories and conversations.
 

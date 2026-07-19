@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { settingsRouter } from "./routes/settings";
 import { agentsRouter } from "./routes/agents";
@@ -39,8 +40,18 @@ if (fs.existsSync(clientDist)) {
 }
 
 const port = Number(process.env.PORT || 3001);
-app.listen(port, () => {
+const host = process.env.HOST || "0.0.0.0";
+app.listen(port, host, () => {
   console.log(`Health app server on http://localhost:${port}`);
+  // Print LAN addresses so the app is easy to open from a phone on the same network.
+  const nets = os.networkInterfaces();
+  for (const list of Object.values(nets)) {
+    for (const net of list ?? []) {
+      if (net.family === "IPv4" && !net.internal) {
+        console.log(`  on your phone: http://${net.address}:${port}`);
+      }
+    }
+  }
   if (!hasApiKey()) {
     console.log("Note: ANTHROPIC_API_KEY not set — AI assistants disabled until configured.");
   }
