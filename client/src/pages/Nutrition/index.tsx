@@ -3,7 +3,7 @@
  * food log with picker/creator, in-depth water tracking, weight trend, 30-day
  * calorie/macro/water history charts, and the nutrition agent chat.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DailyNutritionSummary } from "@shared/types";
 import { AgentChat } from "../../components/AgentChat";
 import { todayStr } from "../../api/http";
@@ -28,8 +28,12 @@ export default function NutritionPage() {
   const [waterHistory, setWaterHistory] = useState<WaterHistoryResponse | null>(null);
   const [weight, setWeight] = useState<WeightHistoryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const dateRef = useRef(date);
+  dateRef.current = date;
 
   const reload = useCallback(() => {
+    setReloadKey((k) => k + 1);
     Promise.all([
       nutritionApi.summary(date),
       nutritionApi.history(30),
@@ -38,6 +42,7 @@ export default function NutritionPage() {
       nutritionApi.weight(90),
     ])
       .then(([s, h, w, wh, wt]) => {
+        if (dateRef.current !== date) return;
         setSummary(s);
         setHistory(h);
         setWater(w);
@@ -178,7 +183,7 @@ export default function NutritionPage() {
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <MealLogCard summary={summary} date={date} onChange={reload} />
+        <MealLogCard summary={summary} date={date} onChange={reload} reloadKey={reloadKey} />
       </div>
 
       <h2 className="section-title">History</h2>

@@ -419,12 +419,11 @@ export function updatePlan(
   patch: { name?: unknown; description?: unknown; goal?: unknown; archived?: unknown },
 ): PlanFull {
   const current = getPlanFull(id);
-  const archived =
-    patch.archived === undefined
-      ? current.archived
-      : patch.archived
-        ? 1
-        : 0;
+  let archived: 0 | 1;
+  if (patch.archived === undefined) archived = current.archived ? 1 : 0;
+  else if (patch.archived === true || patch.archived === 1) archived = 1;
+  else if (patch.archived === false || patch.archived === 0) archived = 0;
+  else throw new Error("archived must be a boolean or 0/1");
   db.prepare(
     "UPDATE workout_plans SET name = ?, description = ?, goal = ?, archived = ? WHERE id = ?",
   ).run(
@@ -615,7 +614,7 @@ export function listSessions(opts: { days?: number; date?: string } = {}): Sessi
     const days = Math.min(365, Math.max(1, Math.round(opts.days ?? 30)));
     rows = db
       .prepare("SELECT id FROM workout_sessions WHERE date >= ? ORDER BY date DESC, id DESC")
-      .all(daysAgoStr(days)) as { id: number }[];
+      .all(daysAgoStr(days - 1)) as { id: number }[];
   }
   return rows.map((r) => getSessionFull(r.id));
 }
@@ -764,7 +763,7 @@ export function getPerformance(exerciseId: number, days = 180): ExercisePerforma
        WHERE ss.exercise_id = ? AND ws.date >= ?
        ORDER BY ws.date`,
     )
-    .all(exerciseId, daysAgoStr(clamped)) as { reps: number; weight: number | null; date: string }[];
+    .all(exerciseId, daysAgoStr(clamped - 1)) as { reps: number; weight: number | null; date: string }[];
 
   const byDate = new Map<string, { reps: number; weight: number | null }[]>();
   for (const r of rows) {
@@ -809,7 +808,7 @@ export function listCardio(days = 90): CardioSession[] {
   return (
     db
       .prepare("SELECT * FROM cardio_sessions WHERE date >= ? ORDER BY date DESC, id DESC")
-      .all(daysAgoStr(clamped)) as any[]
+      .all(daysAgoStr(clamped - 1)) as any[]
   ).map(mapCardio);
 }
 
@@ -1111,9 +1110,11 @@ workoutRouter.get(
 workoutRouter.get(
   "/sessions",
   guard((req, res) => {
+    const days = req.query.days !== undefined ? Number(req.query.days) : undefined;
+    if (days !== undefined && !Number.isFinite(days)) throw new Error("days must be a number");
     res.json(
       listSessions({
-        days: req.query.days !== undefined ? Number(req.query.days) : undefined,
+        days,
         date: typeof req.query.date === "string" ? req.query.date : undefined,
       }),
     );

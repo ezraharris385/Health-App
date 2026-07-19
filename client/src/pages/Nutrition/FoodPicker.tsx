@@ -26,7 +26,7 @@ const EMPTY_FORM = {
 // so it isn't double counted by the vitamins coverage math.
 const MICRO_DEFS = NUTRIENTS.filter((n) => n.key !== "fiber_g");
 
-export function FoodPicker(props: { date: string; onLogged: () => void }) {
+export function FoodPicker(props: { date: string; onLogged: () => void; reloadKey?: number }) {
   const [foods, setFoods] = useState<Food[]>([]);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | "">("");
@@ -48,7 +48,7 @@ export function FoodPicker(props: { date: string; onLogged: () => void }) {
   useEffect(() => {
     loadFoods();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [props.reloadKey]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -58,7 +58,7 @@ export function FoodPicker(props: { date: string; onLogged: () => void }) {
     return list.slice(0, 100);
   }, [foods, query]);
 
-  const selected = foods.find((f) => f.id === selectedId) ?? null;
+  const selected = filtered.find((f) => f.id === selectedId) ?? null;
 
   async function logSelected() {
     if (!selected) {

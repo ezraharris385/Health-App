@@ -3,7 +3,7 @@
  * server/routes/workout.ts so tools and REST routes always agree.
  */
 import type { AgentDef, ToolDef } from "../framework";
-import { todayStr } from "../../db";
+import { db, todayStr } from "../../db";
 import { getWorkoutDaySummary } from "../../summaries";
 import {
   addPlanDayExercise,
@@ -244,13 +244,15 @@ const tools: ToolDef[] = [
       removeExerciseIds?: number[];
     }) => {
       const dayId = Number(input.planDayId);
-      if (Array.isArray(input.removeExerciseIds)) {
-        for (const id of input.removeExerciseIds) deletePlanDayExercise(Number(id));
-      }
-      if (Array.isArray(input.addExercises)) {
-        for (const ex of input.addExercises) addPlanDayExercise(dayId, ex);
-      }
-      return JSON.stringify(updatePlanDay(dayId, input));
+      return db.transaction(() => {
+        if (Array.isArray(input.removeExerciseIds)) {
+          for (const id of input.removeExerciseIds) deletePlanDayExercise(Number(id));
+        }
+        if (Array.isArray(input.addExercises)) {
+          for (const ex of input.addExercises) addPlanDayExercise(dayId, ex);
+        }
+        return JSON.stringify(updatePlanDay(dayId, input));
+      })();
     },
   },
   // -------------------------------------------------------------- sessions
@@ -314,14 +316,17 @@ const tools: ToolDef[] = [
       notes?: string;
       completed?: boolean;
       sets?: any[];
-    }) => {
-      const session = createSession(input ?? {});
-      if (Array.isArray(input?.sets)) {
-        for (const s of input.sets) addSet(session.id, s);
-      }
-      if (input?.completed) completeSession(session.id);
-      return JSON.stringify(getSessionFull(session.id));
-    },
+    }) =>
+      JSON.stringify(
+        db.transaction(() => {
+          const session = createSession(input ?? {});
+          if (Array.isArray(input?.sets)) {
+            for (const s of input.sets) addSet(session.id, s);
+          }
+          if (input?.completed) completeSession(session.id);
+          return getSessionFull(session.id);
+        })(),
+      ),
   },
   {
     name: "add_sets",
@@ -352,8 +357,12 @@ const tools: ToolDef[] = [
       if (!Array.isArray(input.sets) || input.sets.length === 0) {
         throw new Error("sets must be a non-empty array");
       }
-      for (const s of input.sets) addSet(Number(input.sessionId), s);
-      return JSON.stringify(getSessionFull(Number(input.sessionId)));
+      return JSON.stringify(
+        db.transaction(() => {
+          for (const s of input.sets) addSet(Number(input.sessionId), s);
+          return getSessionFull(Number(input.sessionId));
+        })(),
+      );
     },
   },
   {
@@ -480,16 +489,16 @@ Tone: a genuinely helpful coach — direct, encouraging, concrete numbers and cl
   buildContext: () => {
     const date = todayStr();
     const day = getWorkoutDaySummary(date);
-    const plans = listPlans(false).map((p) => ({
+    const allPlans = listPlans(false);
+    const plans = allPlans.slice(0, 3).map((p) => ({
       id: p.id,
       name: p.name,
       goal: p.goal,
-      days: p.days.map((d) => ({
-        id: d.id,
-        name: d.name,
-        dow: d.dayOfWeek,
-        exercises: d.exercises.length,
-      })),
+      days: p.days.length,
+      dows: p.days
+        .map((d) => d.dayOfWeek)
+        .filter((d) => d !== null)
+        .join(","),
     }));
     const recent = listSessions({ days: 7 });
     const volume7 = recent.reduce(
@@ -513,6 +522,7 @@ Tone: a genuinely helpful coach — direct, encouraging, concrete numbers and cl
         })),
       },
       activePlans: plans,
+      ...(allPlans.length > 3 ? { morePlans: allPlans.length - 3 } : {}),
       last7Days: {
         liftingSessions: recent.length,
         totalVolume: Math.round(volume7),
