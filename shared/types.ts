@@ -1,0 +1,325 @@
+/**
+ * Shared types between server and client.
+ * Dates are local calendar dates as "YYYY-MM-DD" strings unless noted.
+ * Timestamps are ISO 8601 strings.
+ */
+
+// ---------------------------------------------------------------------------
+// Settings / goals
+// ---------------------------------------------------------------------------
+
+export interface UserGoals {
+  calorieGoal: number; // kcal/day
+  proteinGoalG: number;
+  carbsGoalG: number;
+  fatGoalG: number;
+  waterGoalMl: number;
+  sleepTargetHours: number;
+  weightGoal: number | null; // in weightUnit
+  weightUnit: "lb" | "kg";
+  /** Free-text overall goal, e.g. "cut to 180lb while keeping strength" */
+  goalStatement: string;
+}
+
+export interface UserProfile {
+  name: string;
+  age: number | null;
+  heightCm: number | null;
+  sex: "male" | "female" | "other" | null;
+  activityLevel: "sedentary" | "light" | "moderate" | "active" | "very_active" | null;
+  notes: string;
+}
+
+export interface Settings {
+  profile: UserProfile;
+  goals: UserGoals;
+  /** Per-nutrient daily target overrides, keyed by NutrientKey */
+  nutrientTargetOverrides: Partial<Record<string, number>>;
+}
+
+// ---------------------------------------------------------------------------
+// Workout
+// ---------------------------------------------------------------------------
+
+export interface Exercise {
+  id: number;
+  name: string;
+  muscleGroups: string; // comma-separated, e.g. "chest, triceps"
+  equipment: string;
+  /** How the exercise is performed (form cues) */
+  instructions: string;
+  notes: string;
+  createdAt: string;
+}
+
+export interface WorkoutPlan {
+  id: number;
+  name: string;
+  description: string;
+  goal: string; // e.g. "hypertrophy", "strength", free text
+  archived: 0 | 1;
+  createdAt: string;
+}
+
+/** A day within a plan; dayOfWeek 0=Sunday..6=Saturday, null = unscheduled template day */
+export interface PlanDay {
+  id: number;
+  planId: number;
+  dayOfWeek: number | null;
+  name: string; // e.g. "Push A"
+  orderIndex: number;
+}
+
+export interface PlanDayExercise {
+  id: number;
+  planDayId: number;
+  exerciseId: number;
+  orderIndex: number;
+  sets: number;
+  reps: string; // e.g. "8-12"
+  targetWeight: number | null;
+  restSeconds: number | null;
+  notes: string;
+  // joined convenience
+  exerciseName?: string;
+}
+
+export interface WorkoutSession {
+  id: number;
+  date: string;
+  planDayId: number | null;
+  name: string;
+  notes: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface SessionSet {
+  id: number;
+  sessionId: number;
+  exerciseId: number;
+  setNumber: number;
+  reps: number;
+  weight: number | null;
+  rpe: number | null; // 1-10 rate of perceived exertion
+  notes: string;
+  exerciseName?: string;
+}
+
+export type CardioType = "run" | "jog" | "walk" | "interval";
+
+export interface CardioSession {
+  id: number;
+  date: string;
+  type: CardioType;
+  distanceKm: number;
+  durationMinutes: number;
+  intensity: number; // 1-10
+  /** Manually entered ("hardcoded") total steps; null = use estimates */
+  steps: number | null;
+  estimatedStepsRun: number | null;
+  estimatedStepsWalked: number | null;
+  /** User's report of how it went (used by the AI for analysis) */
+  report: string;
+  notes: string;
+}
+
+// ---------------------------------------------------------------------------
+// Nutrition
+// ---------------------------------------------------------------------------
+
+/** Micronutrients per serving, keyed by NutrientKey (see shared/nutrients) */
+export type MicroMap = Partial<Record<string, number>>;
+
+export interface Food {
+  id: number;
+  name: string;
+  brand: string;
+  servingSize: number;
+  servingUnit: string; // g, ml, item, cup...
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sugarG: number;
+  sodiumMg: number;
+  /** micronutrients per serving; usually filled in by the AI agent */
+  micros: MicroMap;
+  source: "user" | "ai";
+  createdAt: string;
+}
+
+export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+
+export interface FoodLog {
+  id: number;
+  date: string;
+  foodId: number;
+  servings: number;
+  meal: MealType;
+  loggedAt: string;
+  // joined convenience
+  food?: Food;
+}
+
+export interface WaterLog {
+  id: number;
+  date: string;
+  amountMl: number;
+  loggedAt: string;
+}
+
+export interface WeightLog {
+  id: number;
+  date: string;
+  weight: number; // in the user's weightUnit
+  loggedAt: string;
+}
+
+export interface MacroTotals {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sugarG: number;
+  sodiumMg: number;
+}
+
+export interface DailyNutritionSummary {
+  date: string;
+  totals: MacroTotals;
+  goals: UserGoals;
+  byMeal: Record<MealType, MacroTotals>;
+  waterMl: number;
+  logs: FoodLog[];
+}
+
+// ---------------------------------------------------------------------------
+// Sleep
+// ---------------------------------------------------------------------------
+
+export interface SleepLog {
+  id: number;
+  /** date the sleep is attributed to (the wake date) */
+  date: string;
+  bedTime: string; // ISO timestamp
+  wakeTime: string | null; // null = currently sleeping
+  quality: number | null; // 1-5 optional
+  notes: string;
+  durationHours: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Vitamins / micronutrients
+// ---------------------------------------------------------------------------
+
+export interface NutrientDef {
+  key: string; // e.g. "vitamin_c_mg"
+  label: string; // "Vitamin C"
+  unit: string; // "mg"
+  dailyTarget: number; // default adult daily target
+  upperLimit: number | null;
+}
+
+export interface Supplement {
+  id: number;
+  name: string;
+  /** nutrient contents per dose, keyed by NutrientKey */
+  nutrients: MicroMap;
+  notes: string;
+  active: 0 | 1;
+  createdAt: string;
+}
+
+export interface SupplementLog {
+  id: number;
+  date: string;
+  supplementId: number;
+  takenAt: string;
+  supplementName?: string;
+}
+
+export interface NutrientCoverage {
+  key: string;
+  label: string;
+  unit: string;
+  target: number;
+  consumed: number; // total from food micros + supplements
+  fromFood: number;
+  fromSupplements: number;
+  /** 0-100, capped at 100 */
+  percent: number;
+}
+
+export interface DailyVitaminSummary {
+  date: string;
+  coverage: NutrientCoverage[];
+  supplementsTaken: SupplementLog[];
+  activeSupplements: Supplement[];
+}
+
+// ---------------------------------------------------------------------------
+// Scores
+// ---------------------------------------------------------------------------
+
+export interface DailyScore {
+  date: string;
+  total: number; // 0-100
+  workout: number;
+  nutrition: number;
+  sleep: number;
+  vitamins: number;
+  breakdown: Record<string, string>; // human-readable explanation per component
+}
+
+export interface ScoreHistory {
+  daily: DailyScore[];
+  weeklyAverage: number; // average of last 7 days
+  monthlyAverage: number; // average of last 30 days
+}
+
+// ---------------------------------------------------------------------------
+// Agents
+// ---------------------------------------------------------------------------
+
+export type AgentName = "workout" | "nutrition" | "sleep" | "vitamins" | "master";
+
+export interface AgentConversation {
+  id: number;
+  agent: AgentName;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Simplified message for the client UI */
+export interface ChatMessage {
+  id: number;
+  role: "user" | "assistant";
+  /** Rendered text (tool use is summarized server-side into toolEvents) */
+  text: string;
+  /** Names of tools the assistant called while producing this reply */
+  toolEvents: string[];
+  createdAt: string;
+}
+
+export interface AgentMemoryNote {
+  id: number;
+  agent: AgentName;
+  category: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatRequest {
+  conversationId?: number;
+  message: string;
+}
+
+export interface ChatResponse {
+  conversationId: number;
+  reply: ChatMessage;
+}
