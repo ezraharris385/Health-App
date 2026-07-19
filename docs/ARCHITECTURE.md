@@ -25,6 +25,8 @@ client/src/theme.css     Design tokens + all common CSS classes (card, btn, inpu
                          stat-tile, meter, chat, table.data, chip...). Use them; don't add CSS files.
 client/src/viz/ChartKit.tsx  ChartCard, StatTile, TrendLine, HistoryBars, Meter, Legend, SERIES.
 client/src/components/AgentChat.tsx  Shared chat panel: <AgentChat agent="..." title="..." onReply={refetch}/>.
+client/src/chat/runner.ts    Module-level chat turn runner — turns keep running across in-app navigation;
+                             AgentChat re-attaches/consumes outcomes on mount. Send through it, never fetch directly.
 client/src/api/http.ts   http.get/post/put/del + todayStr(). ApiError has .status/.message.
 client/src/pages/<Segment>/index.tsx  Page component  ← segment-owned
 client/src/App.tsx       Routing/nav. DO NOT EDIT.

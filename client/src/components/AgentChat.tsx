@@ -1,9 +1,15 @@
 /**
  * Shared chat panel used by every segment page and the dashboard.
  * Handles conversation selection/persistence, sending, and error states.
+ *
+ * Sending goes through the module-level chat runner (../chat/runner), so a
+ * turn keeps running when the user navigates to another page mid-reply; when
+ * they come back, this card re-attaches to the in-flight turn (or consumes its
+ * finished result).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { agentsApi } from "../api/agents";
+import { clearChatTurn, getChatTurn, sendChat, subscribeChat } from "../chat/runner";
 import type { AgentConversation, AgentName, ChatMessage } from "@shared/types";
 
 export function AgentChat(props: {
@@ -18,13 +24,22 @@ export function AgentChat(props: {
   const [conversationId, setConversationId] = useState<number | undefined>(undefined);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [, bumpTurnState] = useReducer((n: number) => n + 1, 0);
   const logRef = useRef<HTMLDivElement>(null);
+
+  const turn = getChatTurn(props.agent);
+  const busy = turn?.status === "running";
 
   useEffect(() => {
     agentsApi.status().then((s) => setEnabled(s.enabled)).catch(() => setEnabled(false));
     refreshConversations();
+    // Re-attach to the in-flight/settled turn for this agent (if any) and
+    // re-render whenever its state changes — even while this card is the one
+    // that started it.
+    const unsubscribe = subscribeChat(props.agent, bumpTurnState);
+    bumpTurnState();
+    return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.agent]);
 
@@ -36,6 +51,52 @@ export function AgentChat(props: {
     }
   }, [conversationId]);
 
+  // Consume a settled turn: apply its outcome exactly once, whichever card
+  // instance happens to be mounted when it finishes (or when the user returns).
+  useEffect(() => {
+    const t = getChatTurn(props.agent);
+    if (!t || t.status === "running") return;
+    clearChatTurn(props.agent);
+    if (t.status === "done" && t.resultConversationId) {
+      setError(null);
+      setConversationId(t.resultConversationId);
+      agentsApi.messages(t.resultConversationId).then(setMessages).catch(() => {});
+      refreshConversations();
+      props.onReply?.();
+    } else if (t.status === "error") {
+      setError(t.error ?? "Failed to reach the agent");
+      // Put the message back so it isn't lost (unless they typed something
+      // new meanwhile), and re-sync — the turn may have been partially
+      // persisted even though the request failed.
+      setInput((cur) => (cur.trim() ? cur : t.text));
+      if (t.conversationId) {
+        setConversationId(t.conversationId);
+        agentsApi.messages(t.conversationId).then(setMessages).catch(() => {});
+      }
+      refreshConversations();
+    }
+  });
+
+  // When the tab/PWA becomes visible again, re-sync the conversation — a reply
+  // may have been persisted while the page was frozen in the background.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      if (getChatTurn(props.agent)?.status === "running") return;
+      if (conversationId) {
+        agentsApi.messages(conversationId).then(setMessages).catch(() => {});
+      }
+      refreshConversations();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.agent, conversationId]);
+
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [messages, busy]);
@@ -44,36 +105,22 @@ export function AgentChat(props: {
     agentsApi.conversations(props.agent).then(setConversations).catch(() => {});
   }
 
-  async function send() {
+  function send() {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || enabled === false) return;
     setInput("");
     setError(null);
-    setBusy(true);
-    setMessages((m) => [
-      ...m,
-      { id: -Date.now(), role: "user", text, toolEvents: [], createdAt: new Date().toISOString() },
-    ]);
-    try {
-      const res = await agentsApi.chat(props.agent, text, conversationId);
-      setConversationId(res.conversationId);
-      const all = await agentsApi.messages(res.conversationId);
-      setMessages(all);
-      refreshConversations();
-      props.onReply?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reach the agent");
-      // Put the message back so it isn't lost, and re-sync from the server —
-      // the turn may have been persisted even though our request failed.
-      setInput(text);
-      if (conversationId) {
-        agentsApi.messages(conversationId).then(setMessages).catch(() => {});
-      }
-      refreshConversations();
-    } finally {
-      setBusy(false);
-    }
+    sendChat(props.agent, text, conversationId);
   }
+
+  // While a turn runs, show its user message as a pending bubble — unless the
+  // refetched history already contains it (it gets persisted as the turn runs).
+  const lastMessage = messages[messages.length - 1];
+  const showPending =
+    busy &&
+    turn !== undefined &&
+    !(lastMessage && lastMessage.role === "user" && lastMessage.text === turn.text) &&
+    !messages.some((m) => m.role === "user" && m.text === turn.text);
 
   return (
     <div className="card">
@@ -142,6 +189,7 @@ export function AgentChat(props: {
               )}
             </div>
           ))}
+          {showPending && <div className="msg user">{turn.text}</div>}
           {busy && <div className="thinking-dots">thinking…</div>}
         </div>
         {error && <p className="error-text">{error}</p>}

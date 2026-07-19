@@ -1,7 +1,7 @@
 # Health-App ("Darfum")
 
-A personal health tracking app with four segments — **Workout**, **Nutrition**, **Sleep**,
-**Vitamins** — each with its own AI assistant, all coordinated by a **master agent** on the
+A personal health tracking app with five segments — **Workout**, **Nutrition**, **Sleep**,
+**Vitamins**, **Mobility** — each with its own AI assistant, all coordinated by a **master agent** on the
 Dashboard. Everything runs locally: Express + SQLite backend, React frontend, Anthropic API
 for the agents.
 
@@ -78,15 +78,19 @@ everything, including the agents' memories and conversations.
 - **Vitamins** — 0–100% coverage meters for ~18 tracked micronutrients (computed from logged
   foods + supplements vs daily targets), and reusable supplements you create once (with their
   nutrient contents) and tick off each day.
-- **Dashboard** — your daily health score (weighted: nutrition 30%, workout 25%, sleep 25%,
-  vitamins 20%) with weekly/monthly trends and the master agent chat.
+- **Mobility** — a stretch/yoga-pose/posture-drill bank, routines built from it, session
+  logging with a qualitative "how it went" report, and your own named metrics (e.g.
+  "Hamstring flexibility") rated 1-10 over time with trend charts.
+- **Dashboard** — your daily health score (weighted: nutrition 28%, workout 22%, sleep 22%,
+  vitamins 15%, mobility 13%) with weekly/monthly trends and the master agent chat.
 
 ## The agents
 
 Every segment has an agent with **persistent memory** (notes it saves about your goals,
 preferences, constraints, and patterns — stored in SQLite and injected into every future
 conversation) and **live tools** over its segment's data: they don't just advise, they can
-log your food, build a complete workout plan, mark supplements taken, and so on.
+log your food, build a complete workout plan, mark supplements taken, and so on — always
+at your request; they never record data you didn't tell them about.
 
 The **master agent** on the Dashboard monitors all segments, explains your score, and makes
 combined recommendations. For cross-segment asks it *consults the specialists directly* —

@@ -20,10 +20,16 @@ const SEGMENT_AGENTS: Record<Exclude<AgentName, "master">, AgentDef> = {
   mobility: mobilityAgent,
 };
 
+/**
+ * Tool names that modify user data. Memory tools (save/update/delete_memory)
+ * are deliberately not matched — recording learnings is always allowed.
+ */
+const WRITE_TOOL_RE = /^(create|update|delete|log|toggle|set|mark|add|archive)_(?!.*memory$)/;
+
 const consultTool: ToolDef = {
   name: "consult_agent",
   description:
-    "Consult one of the specialist agents (workout, nutrition, sleep, vitamins, mobility) with a specific question or task. The specialist has full access to its segment's live data and tools and will reply with concrete findings. Use this to combine segments — e.g. ask nutrition AND vitamins to jointly design a meal, or ask workout how to adjust training after a heavy eating day. Consult multiple agents (in parallel if independent) and synthesize their answers for the user.",
+    "Consult one of the specialist agents (workout, nutrition, sleep, vitamins, mobility) with a specific question or task. The specialist has full read access to its segment's live data and replies with concrete findings. Specialists only ADVISE during a consultation: they will not modify the user's data unless your question explicitly relays a direct user instruction to record something specific (e.g. \"the user asked to log 2 eggs at lunch\"). Never phrase your own recommendation as an instruction to write data — relay the advice to the user and let them decide. Use this to combine segments — e.g. ask nutrition AND vitamins to jointly design a meal, or ask workout how to adjust training after a heavy eating day. Consult multiple agents (in parallel if independent) and synthesize their answers for the user.",
   input_schema: {
     type: "object",
     properties: {
@@ -43,8 +49,17 @@ const consultTool: ToolDef = {
   run: async (input: { agent: Exclude<AgentName, "master">; question: string }) => {
     const def = SEGMENT_AGENTS[input.agent];
     if (!def) throw new Error(`Unknown agent: ${input.agent}`);
-    const answer = await consultAgent(def, input.question);
-    return `[${input.agent} agent's answer]\n${answer}`;
+    const { text, toolEvents } = await consultAgent(def, input.question);
+    // Surface any data writes the specialist performed so they can never
+    // happen silently — the coordinator must report them to the user.
+    const writes = [...new Set(toolEvents.filter((t) => WRITE_TOOL_RE.test(t)))];
+    const writeNote =
+      writes.length > 0
+        ? `\n\n[NOTE: the specialist modified data during this consultation using: ${writes.join(
+            ", ",
+          )}. You MUST tell the user exactly what was changed.]`
+        : "";
+    return `[${input.agent} agent's answer]\n${text}${writeNote}`;
   },
 };
 

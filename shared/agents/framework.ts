@@ -446,23 +446,30 @@ async function runAgentTurnLocked(
 /**
  * Run a one-shot, non-persisted consultation of an agent (used by the master
  * agent to pull segment agents into a joint task). The consulted agent has its
- * full toolset and memory, so it can read live data and even record learnings.
+ * full toolset and memory so it can read live data and record learnings, but
+ * the consultation prompt forbids data writes unless the question explicitly
+ * relays a direct user instruction — a recommendation must never silently
+ * become a logged meal, a created supplement, or a "taken" checkmark.
+ * toolEvents is returned so the caller can surface any writes that did happen.
  */
-export async function consultAgent(def: AgentDef, question: string): Promise<string> {
+export async function consultAgent(
+  def: AgentDef,
+  question: string,
+): Promise<{ text: string; toolEvents: string[] }> {
   const context = safeContext(def);
   const messages: Anthropic.MessageParam[] = [
     {
       role: "user",
-      content: `<context date="${todayStr()}">\n${context}\n</context>\n\nYou are being consulted by the master health coordinator agent on behalf of the user. Answer with concrete, specific data and recommendations — your reply goes to another agent, not directly to the user, so be dense and factual.\n\nQuestion: ${question}`,
+      content: `<context date="${todayStr()}">\n${context}\n</context>\n\nYou are being consulted by the master health coordinator agent on behalf of the user. Answer with concrete, specific data and recommendations — your reply goes to another agent, not directly to the user, so be dense and factual.\n\nWrite discipline — you ADVISE, you do not act. During this consultation, do NOT create, log, update, toggle, archive, or delete any of the user's data unless the question above explicitly relays a direct instruction from the user to record something specific (e.g. "the user asked to log ..."). Recommending something is never a reason to write it: never create a supplement, food, plan, or routine you are merely suggesting, and never mark anything taken, eaten, or done because you recommended it — only the user's own report of what they actually did justifies a write. If acting would help, describe the exact write you WOULD make and let the coordinator put it to the user. (Your memory tools are always fine to use.)\n\nQuestion: ${question}`,
     },
   ];
-  const { text } = await runToolLoop(
+  const { text, toolEvents } = await runToolLoop(
     def,
     messages,
     undefined,
     "(Consultation incomplete: the specialist hit its tool-use limit before producing a final answer. Treat any partial information as unverified.)",
   );
-  return text;
+  return { text, toolEvents };
 }
 
 function safeContext(def: AgentDef): string {
