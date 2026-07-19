@@ -1,11 +1,30 @@
-# Health-App
+# Health-App ("Darfum")
 
 A personal health tracking app with four segments — **Workout**, **Nutrition**, **Sleep**,
 **Vitamins** — each with its own AI assistant, all coordinated by a **master agent** on the
 Dashboard. Everything runs locally: Express + SQLite backend, React frontend, Anthropic API
 for the agents.
 
-## Easiest setup (no terminal experience needed)
+## Option A — the phone-only version (GitHub Pages, no computer needed)
+
+The app is published as **Darfum** at
+**https://ezraharris385.github.io/Health-App/** — it runs entirely in your
+phone's browser: the database (SQLite compiled to WebAssembly) lives in the
+browser's storage on your device, and the AI agents call Anthropic directly
+with a key you enter once in Settings (stored only on the device).
+
+1. Open the URL on your phone and **Add to Home Screen**.
+2. In **Settings**, paste your Anthropic API key (AI assistants) — optional.
+3. Use **Settings → Data → Export backup** now and then; your data lives on
+   that one device, and the backup file restores everything (including agent
+   memories) via Import.
+
+Notes: only one tab/window can have the app open at a time (a second one is
+politely refused so they can't overwrite each other); the public URL serves
+only the empty app shell — visitors get their own blank copy, never your data.
+Deploys are automatic: every push rebuilds and publishes via GitHub Actions.
+
+## Option B — run it on a computer (no terminal experience needed)
 
 1. Install **Node.js** from [nodejs.org](https://nodejs.org) (green button → Next → Finish).
 2. Download this project as a ZIP from GitHub (green **Code** button → Download ZIP) and unzip it.

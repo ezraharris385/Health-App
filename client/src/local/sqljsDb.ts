@@ -2,9 +2,15 @@
  * Browser database backend: sql.js (SQLite compiled to WebAssembly) exposed
  * through the shared DBHandle contract and persisted to IndexedDB.
  *
- * Persistence model: every write marks the DB dirty; a debounced task exports
- * the whole database (it's small — personal-tracking scale) into IndexedDB.
- * pagehide/visibility flushes cover mobile tab discards.
+ * Persistence model: every write marks the DB dirty; a coalesced task exports
+ * the whole database (it's small — personal-tracking scale) into IndexedDB
+ * through one cached connection. pagehide/visibility-hidden run the same save
+ * synchronously in the handler task (IDBTransaction.commit()) so closing the
+ * tab right after a write cannot lose it.
+ *
+ * Single-writer invariant: a Web Lock ("darfum-db") is held for the page's
+ * lifetime; a second tab/window refuses to initialize instead of silently
+ * clobbering the first tab's exports (whole-DB writes don't merge).
  */
 import initSqlJs, { type Database } from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
@@ -13,14 +19,27 @@ import { applySchema, setDbHandle, type DBHandle, type DBStatement } from "@shar
 const IDB_NAME = "darfum";
 const IDB_STORE = "sqlite";
 const IDB_KEY = "main";
+const LOCK_NAME = "darfum-db";
+
+/** Thrown by initSqljsDb when another tab/window already owns the database. */
+export class AlreadyOpenError extends Error {
+  constructor() {
+    super(
+      "Darfum is already open in another tab or window. Close that one (or use it) and reload here.",
+    );
+    this.name = "AlreadyOpenError";
+  }
+}
 
 let sdb: Database | null = null;
+let idbConn: IDBDatabase | null = null;
 let dirty = false;
+let writeGen = 0; // bumped on every write; guards the dirty-clear race
 let saveTimer: number | null = null;
 let txDepth = 0;
 
 // ---------------------------------------------------------------------------
-// IndexedDB helpers
+// IndexedDB helpers (one cached connection)
 // ---------------------------------------------------------------------------
 
 function openIdb(): Promise<IDBDatabase> {
@@ -36,48 +55,97 @@ function openIdb(): Promise<IDBDatabase> {
   });
 }
 
-async function idbLoad(): Promise<Uint8Array | null> {
-  const idb = await openIdb();
+async function getConn(): Promise<IDBDatabase> {
+  if (idbConn) return idbConn;
+  const conn = await openIdb();
+  conn.onclose = () => {
+    if (idbConn === conn) idbConn = null;
+  };
+  conn.onversionchange = () => {
+    conn.close();
+    if (idbConn === conn) idbConn = null;
+  };
+  idbConn = conn;
+  return conn;
+}
+
+function idbLoad(conn: IDBDatabase): Promise<Uint8Array | null> {
   return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, "readonly");
+    const tx = conn.transaction(IDB_STORE, "readonly");
     const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
     req.onsuccess = () => resolve(req.result ? new Uint8Array(req.result) : null);
     req.onerror = () => reject(req.error);
   });
 }
 
-async function idbSave(bytes: Uint8Array): Promise<void> {
-  const idb = await openIdb();
+function idbSave(conn: IDBDatabase, bytes: Uint8Array): Promise<void> {
   return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, "readwrite");
+    const tx = conn.transaction(IDB_STORE, "readwrite");
     tx.objectStore(IDB_STORE).put(bytes.buffer.slice(0), IDB_KEY);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction aborted"));
   });
 }
 
 // ---------------------------------------------------------------------------
-// Persistence scheduling
+// Export + persistence scheduling
 // ---------------------------------------------------------------------------
+
+/**
+ * sql.js's export() closes and reopens the underlying connection, which RESETS
+ * per-connection pragmas — notably foreign_keys, silently disabling every
+ * ON DELETE CASCADE/SET NULL. Always export through this helper.
+ */
+function exportBytes(): Uint8Array {
+  const bytes = sdb!.export();
+  sdb!.exec("PRAGMA foreign_keys = ON");
+  return bytes;
+}
 
 function markDirty(): void {
   dirty = true;
+  writeGen++;
   if (txDepth > 0) return; // save once the outermost transaction commits
   if (saveTimer != null) return;
+  // Coalesce same-burst writes only — the DB is small and export is cheap.
   saveTimer = window.setTimeout(() => {
     saveTimer = null;
     void flush();
-  }, 300);
+  }, 0);
 }
 
 export async function flush(): Promise<void> {
   if (!sdb || !dirty) return;
-  dirty = false;
+  const gen = writeGen;
   try {
-    await idbSave(sdb.export());
+    const conn = await getConn();
+    await idbSave(conn, exportBytes());
+    if (writeGen === gen) dirty = false; // only clear if nothing wrote meanwhile
   } catch (err) {
-    dirty = true; // retry on next write
     console.error("Failed to persist database:", err);
+  }
+}
+
+/**
+ * Unload-path save: runs entirely inside the current task using the cached
+ * connection. transaction creation + put are synchronous; commit() asks the
+ * backend to commit without waiting for further renderer callbacks — the API
+ * designed for exactly this pagehide scenario.
+ */
+function syncSave(): void {
+  if (!sdb || !dirty || !idbConn) return;
+  try {
+    const bytes = exportBytes();
+    const tx = idbConn.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(bytes.buffer.slice(0), IDB_KEY);
+    (tx as { commit?: () => void }).commit?.();
+    const gen = writeGen;
+    tx.oncomplete = () => {
+      if (writeGen === gen) dirty = false;
+    };
+  } catch (err) {
+    console.error("Unload-path persist failed:", err);
   }
 }
 
@@ -97,7 +165,7 @@ function cleanParams(params: unknown[]): SqlParam[] {
   });
 }
 
-const WRITE_RE = /^\s*(insert|update|delete|replace|create|drop|alter|vacuum)/i;
+const WRITE_RE = /^\s*(insert|update|delete|replace|create|drop|alter|vacuum|with)/i;
 
 function makeStatement(sql: string): DBStatement {
   const isWrite = WRITE_RE.test(sql);
@@ -186,30 +254,49 @@ const handle: DBHandle = {
 // Init / backup
 // ---------------------------------------------------------------------------
 
+/** Hold a page-lifetime exclusive lock; false if another tab owns the DB. */
+function acquireWriterLock(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!("locks" in navigator) || !navigator.locks?.request) return resolve(true);
+    void navigator.locks.request(LOCK_NAME, { ifAvailable: true }, (lock) => {
+      resolve(lock !== null);
+      if (lock) return new Promise<never>(() => {}); // hold until page dies
+      return undefined;
+    });
+  });
+}
+
 export async function initSqljsDb(): Promise<void> {
+  const granted = await acquireWriterLock();
+  if (!granted) throw new AlreadyOpenError();
+
   const SQL = await initSqlJs({ locateFile: () => wasmUrl });
-  const bytes = await idbLoad().catch(() => null);
+  const conn = await getConn();
+  const bytes = await idbLoad(conn).catch(() => null);
   sdb = bytes ? new SQL.Database(bytes) : new SQL.Database();
   setDbHandle(handle);
   handle.pragma("foreign_keys = ON");
   applySchema();
+  dirty = true;
+  writeGen++;
   await flush();
 
   // Best-effort durability on mobile browsers.
   void navigator.storage?.persist?.();
-  window.addEventListener("pagehide", () => void flush());
+  window.addEventListener("pagehide", syncSave);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") void flush();
+    if (document.visibilityState === "hidden") syncSave();
   });
 }
 
 /** Full database bytes for the backup/export button. */
 export function exportDbBytes(): Uint8Array {
   if (!sdb) throw new Error("Database not initialized");
-  return sdb.export();
+  return exportBytes();
 }
 
-/** Replace the database from an imported backup. Caller should reload the app. */
+/** Replace the database from an imported backup. Throws if the replacement
+ *  cannot be persisted — callers must not reload on failure. */
 export async function importDbBytes(bytes: Uint8Array): Promise<void> {
   const SQL = await initSqlJs({ locateFile: () => wasmUrl });
   const replacement = new SQL.Database(bytes);
@@ -226,6 +313,10 @@ export async function importDbBytes(bytes: Uint8Array): Promise<void> {
   sdb = replacement;
   handle.pragma("foreign_keys = ON");
   applySchema();
-  dirty = true;
-  await flush();
+  // Persist directly and PROPAGATE failure — a swallowed error here would
+  // silently reload into the old data.
+  const conn = await getConn();
+  await idbSave(conn, exportBytes());
+  dirty = false;
+  writeGen++;
 }

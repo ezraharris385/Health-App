@@ -32,10 +32,17 @@ async function local<T>(
 ): Promise<T> {
   const { dispatch, LocalApiError } = await import("../local/router");
   try {
-    return (await dispatch(method, url, body)) as T;
+    // Round-trip the body through JSON to reproduce the server-mode boundary
+    // (JSON.stringify + express.json): NaN/Infinity -> null, Dates -> strings,
+    // explicit-undefined properties dropped.
+    const wireBody = body === undefined ? undefined : JSON.parse(JSON.stringify(body));
+    return (await dispatch(method, url, wireBody)) as T;
   } catch (err) {
     if (err instanceof LocalApiError) throw new ApiError(err.status, err.message);
-    throw new ApiError(500, err instanceof Error ? err.message : "Internal error");
+    // Match server mode, where unexpected errors surface as Express's plain
+    // "Internal Server Error" — never raw internal messages.
+    console.error(err);
+    throw new ApiError(500, "Internal Server Error");
   }
 }
 

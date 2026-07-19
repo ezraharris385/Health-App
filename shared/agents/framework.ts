@@ -212,6 +212,30 @@ export interface AgentTurnResult {
   reply: ChatMessage;
 }
 
+/**
+ * If the persisted history ends with an assistant tool_use that never got its
+ * tool_result (the page was closed/reloaded mid-run, or the process died),
+ * append synthetic error results — replaying a dangling tool_use 400s forever.
+ * Only the trailing message can dangle: results are persisted right after
+ * their tool_use in the same batch.
+ */
+function healDanglingToolUse(convId: number, messages: Anthropic.MessageParam[]): void {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "assistant" || !Array.isArray(last.content)) return;
+  const dangling = (last.content as Anthropic.ContentBlockParam[]).filter(
+    (b): b is Anthropic.ToolUseBlockParam => b.type === "tool_use",
+  );
+  if (dangling.length === 0) return;
+  const closers: Anthropic.ToolResultBlockParam[] = dangling.map((tu) => ({
+    type: "tool_result" as const,
+    tool_use_id: tu.id,
+    content: "Tool call was interrupted (the app was closed or reloaded) and never ran.",
+    is_error: true,
+  }));
+  messages.push({ role: "user", content: closers });
+  persistMessage(convId, "user", closers, "");
+}
+
 function extractText(content: Anthropic.ContentBlock[]): string {
   return content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -383,6 +407,7 @@ async function runAgentTurnLocked(
   userMessage: string,
 ): Promise<AgentTurnResult> {
   const messages = loadApiMessages(convId);
+  healDanglingToolUse(convId, messages);
   const context = safeContext(def);
   const userContent: Anthropic.ContentBlockParam[] = [
     {
