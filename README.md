@@ -5,7 +5,17 @@ A personal health tracking app with four segments — **Workout**, **Nutrition**
 Dashboard. Everything runs locally: Express + SQLite backend, React frontend, Anthropic API
 for the agents.
 
-## Quick start
+## Easiest setup (no terminal experience needed)
+
+1. Install **Node.js** from [nodejs.org](https://nodejs.org) (green button → Next → Finish).
+2. Download this project as a ZIP from GitHub (green **Code** button → Download ZIP) and unzip it.
+3. Double-click **`Start Health App.bat`** (Windows) or **`Start Health App.command`** (Mac —
+   right-click → Open the first time). On first run it asks for your Anthropic API key
+   (from [platform.claude.com](https://platform.claude.com)), installs, builds, and starts.
+4. On your phone (same Wi-Fi), open the `on your phone:` address the window shows, then
+   **Add to Home Screen**. Leave the computer window open while you use the app.
+
+## Quick start (developers)
 
 ```bash
 npm install
