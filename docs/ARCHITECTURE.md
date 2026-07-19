@@ -36,7 +36,7 @@ client/src/App.tsx       Routing/nav. DO NOT EDIT.
 
 | Segment    | Files |
 |---|---|
-| workout    | `server/routes/workout.ts`, `server/agents/defs/workout.ts`, `client/src/pages/Workout/**`, `client/src/api/workout.ts` |
+| workout    | `server/routes/workout.ts`, `shared/data/stores/workout.ts`, `shared/agents/defs/workout.ts`, `client/src/pages/Workout/**`, `client/src/pages/Cardio/**`, `client/src/api/workout.ts`, `client/src/local/api/workout.ts` |
 | nutrition  | `server/routes/nutrition.ts`, `server/agents/defs/nutrition.ts`, `client/src/pages/Nutrition/**`, `client/src/api/nutrition.ts` |
 | sleep      | `server/routes/sleep.ts`, `server/agents/defs/sleep.ts`, `client/src/pages/Sleep/**`, `client/src/api/sleep.ts` |
 | vitamins   | `server/routes/vitamins.ts`, `server/agents/defs/vitamins.ts`, `client/src/pages/Vitamins/**`, `client/src/api/vitamins.ts` |
@@ -113,9 +113,22 @@ redefine them. registry.ts gives master `consult_agent` — do not add it in the
 - Cardio (walks & runs): log type (run/jog/walk/interval), distance, duration,
   intensity 1-10, optional free-text report; steps auto-estimated via
   `estimateSteps()` split run vs walked, with the option to hardcode total steps.
-  History charts (distance/steps over time).
-- Page: this week's schedule vs plans, today's scheduled workout, quick session
-  logging UI, cardio log form + history, per-exercise progress chart, AgentChat.
+  History charts (distance/steps over time). Cardio lives on its OWN page
+  (`client/src/pages/Cardio/**`, nav "/cardio") separate from lifting; the
+  workout agent still owns cardio data and chats on both pages.
+- Guided template entry: `logFullSession` records a complete workout in one
+  transaction against a plan-day template — only exercises actually performed
+  are included (skipped template rows simply omitted), extra exercises allowed,
+  each entry = sets count × (reps, weight, rpe 1-10 "intensity", optional
+  durationSeconds for timed work). `session_sets.duration_seconds` is migrated
+  in `applySchema()` (guarded ALTER TABLE — existing phone DBs must upgrade in
+  place, never break).
+- Workout page: this week's schedule vs plans, today's scheduled workout,
+  guided template entry grid (prefilled from the plan day, blank = skipped,
+  add/remove rows) plus the live set-by-set logger for an in-progress session,
+  per-exercise progress chart, AgentChat.
+- Cardio page: weekly cardio StatTiles, cardio log form + history, distance/
+  steps charts, AgentChat (agent "workout").
 - Agent tools (read+write): exercises, plans/plan-days/plan-exercises, sessions/sets,
   cardio (including updating a cardio session's report + reading reports for
   analysis), recent performance queries. The agent must be able to CREATE full
