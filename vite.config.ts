@@ -7,6 +7,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root: path.join(here, "client"),
+  // GitHub Pages serves the app under /<repo-name>/ — set via env in build:pages.
+  base: process.env.PAGES_BASE || "/",
   plugins: [react()],
   resolve: {
     alias: {

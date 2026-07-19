@@ -1,14 +1,15 @@
 {
-  "name": "Health",
-  "short_name": "Health",
-  "description": "Personal health tracking: workout, nutrition, sleep, vitamins — with AI assistants.",
-  "start_url": "/dashboard",
+  "name": "Darfum",
+  "short_name": "Darfum",
+  "description": "Darfum.",
+  "start_url": "./#/dashboard",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f9f9f7",
-  "theme_color": "#2a78d6",
+  "theme_color": "#3c2cba",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "./icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"

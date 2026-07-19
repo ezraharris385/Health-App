@@ -19,7 +19,7 @@ export default function App() {
   return (
     <div className="app">
       <nav className="sidebar">
-        <div className="brand">Health</div>
+        <div className="brand">Darfum</div>
         {NAV.map((n) => (
           <NavLink
             key={n.to}

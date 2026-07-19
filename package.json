@@ -2,7 +2,7 @@
   "name": "health-app",
   "version": "1.0.0",
   "private": true,
-  "description": "Personal health tracking app: workout, nutrition, sleep, vitamins — each with an AI agent, coordinated by a master agent.",
+  "description": "Personal health tracking app: workout, nutrition, sleep, vitamins \u2014 each with an AI agent, coordinated by a master agent.",
   "type": "module",
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
@@ -10,7 +10,9 @@
     "dev:client": "vite",
     "build": "tsc -p tsconfig.server.json --noEmit && vite build",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p client/tsconfig.json --noEmit",
-    "start": "cross-env NODE_ENV=production tsx server/index.ts"
+    "start": "cross-env NODE_ENV=production tsx server/index.ts",
+    "build:pages": "cross-env VITE_LOCAL_MODE=1 PAGES_BASE=/Health-App/ vite build",
+    "build:local": "cross-env VITE_LOCAL_MODE=1 vite build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.0",
@@ -33,6 +35,8 @@
     "recharts": "^2.15.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "sql.js": "^1.12.0",
+    "@types/sql.js": "^1.4.9"
   }
 }
