@@ -1,6 +1,11 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { settingsApi } from "../../api/settings";
 import type { Settings } from "@shared/types";
+
+// Local-mode-only cards (API key + backups). The build-time constant makes
+// this dead code in server mode, so the local runtime never gets bundled.
+const LocalCards =
+  import.meta.env.VITE_LOCAL_MODE === "1" ? lazy(() => import("./LocalCards")) : null;
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -170,6 +175,12 @@ export default function SettingsPage() {
         {saved && <span style={{ color: "var(--good-text)", fontSize: 13 }}>Saved ✓</span>}
         {error && <span className="error-text">{error}</span>}
       </div>
+
+      {LocalCards && (
+        <Suspense fallback={null}>
+          <LocalCards />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -118,8 +118,14 @@ export function AgentChat(props: {
 
       {enabled === false && (
         <p className="empty">
-          AI assistants are disabled — set <code>ANTHROPIC_API_KEY</code> in <code>.env</code> and
-          restart the server.
+          {import.meta.env.VITE_LOCAL_MODE === "1" ? (
+            <>AI assistants are disabled — add your Anthropic API key in Settings to enable them.</>
+          ) : (
+            <>
+              AI assistants are disabled — set <code>ANTHROPIC_API_KEY</code> in <code>.env</code>{" "}
+              and restart the server.
+            </>
+          )}
         </p>
       )}
 

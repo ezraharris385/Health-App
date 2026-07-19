@@ -20,21 +20,48 @@ async function handle<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Local mode: no server — dispatch through the in-browser router instead of
+// fetch. The dynamic import keeps the local runtime out of the server-mode
+// bundle (the condition is a build-time constant, so the branch is dropped).
+const LOCAL_MODE = import.meta.env.VITE_LOCAL_MODE === "1";
+
+async function local<T>(
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  url: string,
+  body?: unknown,
+): Promise<T> {
+  const { dispatch, LocalApiError } = await import("../local/router");
+  try {
+    return (await dispatch(method, url, body)) as T;
+  } catch (err) {
+    if (err instanceof LocalApiError) throw new ApiError(err.status, err.message);
+    throw new ApiError(500, err instanceof Error ? err.message : "Internal error");
+  }
+}
+
 export const http = {
-  get: <T>(url: string) => fetch(url).then((r) => handle<T>(r)),
+  get: <T>(url: string) =>
+    LOCAL_MODE ? local<T>("GET", url) : fetch(url).then((r) => handle<T>(r)),
   post: <T>(url: string, body?: unknown) =>
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body ?? {}),
-    }).then((r) => handle<T>(r)),
+    LOCAL_MODE
+      ? local<T>("POST", url, body ?? {})
+      : fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body ?? {}),
+        }).then((r) => handle<T>(r)),
   put: <T>(url: string, body?: unknown) =>
-    fetch(url, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body ?? {}),
-    }).then((r) => handle<T>(r)),
-  del: <T>(url: string) => fetch(url, { method: "DELETE" }).then((r) => handle<T>(r)),
+    LOCAL_MODE
+      ? local<T>("PUT", url, body ?? {})
+      : fetch(url, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body ?? {}),
+        }).then((r) => handle<T>(r)),
+  del: <T>(url: string) =>
+    LOCAL_MODE
+      ? local<T>("DELETE", url)
+      : fetch(url, { method: "DELETE" }).then((r) => handle<T>(r)),
 };
 
 /** Local calendar date as YYYY-MM-DD */
