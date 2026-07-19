@@ -1,5 +1,5 @@
 /**
- * Agent registry. Wires the five agent definitions together and gives the
+ * Agent registry. Wires the six agent definitions together and gives the
  * master agent its consult_agent tool (added here, not in defs/master.ts, so
  * segment agents can't recurse into each other).
  */
@@ -9,6 +9,7 @@ import { workoutAgent } from "./defs/workout";
 import { nutritionAgent } from "./defs/nutrition";
 import { sleepAgent } from "./defs/sleep";
 import { vitaminsAgent } from "./defs/vitamins";
+import { mobilityAgent } from "./defs/mobility";
 import { masterAgent } from "./defs/master";
 
 const SEGMENT_AGENTS: Record<Exclude<AgentName, "master">, AgentDef> = {
@@ -16,18 +17,19 @@ const SEGMENT_AGENTS: Record<Exclude<AgentName, "master">, AgentDef> = {
   nutrition: nutritionAgent,
   sleep: sleepAgent,
   vitamins: vitaminsAgent,
+  mobility: mobilityAgent,
 };
 
 const consultTool: ToolDef = {
   name: "consult_agent",
   description:
-    "Consult one of the specialist agents (workout, nutrition, sleep, vitamins) with a specific question or task. The specialist has full access to its segment's live data and tools and will reply with concrete findings. Use this to combine segments — e.g. ask nutrition AND vitamins to jointly design a meal, or ask workout how to adjust training after a heavy eating day. Consult multiple agents (in parallel if independent) and synthesize their answers for the user.",
+    "Consult one of the specialist agents (workout, nutrition, sleep, vitamins, mobility) with a specific question or task. The specialist has full access to its segment's live data and tools and will reply with concrete findings. Use this to combine segments — e.g. ask nutrition AND vitamins to jointly design a meal, or ask workout how to adjust training after a heavy eating day. Consult multiple agents (in parallel if independent) and synthesize their answers for the user.",
   input_schema: {
     type: "object",
     properties: {
       agent: {
         type: "string",
-        enum: ["workout", "nutrition", "sleep", "vitamins"],
+        enum: ["workout", "nutrition", "sleep", "vitamins", "mobility"],
         description: "Which specialist to consult",
       },
       question: {

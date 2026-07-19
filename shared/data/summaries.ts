@@ -14,6 +14,9 @@ import type {
   FoodLog,
   MacroTotals,
   MealType,
+  MobilityDaySummary,
+  MobilityKind,
+  MobilitySession,
   NutrientCoverage,
   SleepLog,
   Supplement,
@@ -255,6 +258,91 @@ export function getVitaminSummary(date: string): DailyVitaminSummary {
   ).map(mapSupplement);
 
   return { date, coverage, supplementsTaken, activeSupplements };
+}
+
+// ---------------------------------------------------------------------------
+// Mobility (stretching / yoga / posture)
+// ---------------------------------------------------------------------------
+
+export function mapMobilitySession(r: any): MobilitySession {
+  return {
+    id: r.id,
+    date: r.date,
+    kind: r.kind,
+    routineId: r.routine_id,
+    durationMinutes: r.duration_minutes,
+    feel: r.feel,
+    report: r.report,
+    notes: r.notes,
+    performedAt: r.performed_at,
+    routineName: r.routine_name ?? undefined,
+  };
+}
+
+export function getMobilityDaySummary(date: string): MobilityDaySummary {
+  const sessions = (
+    db
+      .prepare(
+        `SELECT ms.*, mr.name AS routine_name FROM mobility_sessions ms
+         LEFT JOIN mobility_routines mr ON mr.id = ms.routine_id
+         WHERE ms.date = ? ORDER BY ms.performed_at`,
+      )
+      .all(date) as any[]
+  ).map(mapMobilitySession);
+
+  const byKind: Partial<Record<MobilityKind, number>> = {};
+  let totalMinutes = 0;
+  for (const s of sessions) {
+    totalMinutes += s.durationMinutes;
+    byKind[s.kind] = (byKind[s.kind] ?? 0) + 1;
+  }
+
+  const assessmentsToday = (
+    db
+      .prepare(
+        `SELECT ma.*, mm.name AS metric_name FROM mobility_assessments ma
+         JOIN mobility_metrics mm ON mm.id = ma.metric_id
+         WHERE ma.date = ? ORDER BY ma.logged_at`,
+      )
+      .all(date) as any[]
+  ).map((r) => ({
+    id: r.id,
+    date: r.date,
+    metricId: r.metric_id,
+    score: r.score,
+    notes: r.notes,
+    loggedAt: r.logged_at,
+    metricName: r.metric_name,
+  }));
+
+  const metricsLatest = (
+    db
+      .prepare(
+        `SELECT mm.id, mm.name, mm.direction, ma.score AS latest_score, ma.date AS latest_date
+         FROM mobility_metrics mm
+         LEFT JOIN mobility_assessments ma ON ma.id = (
+           SELECT id FROM mobility_assessments
+           WHERE metric_id = mm.id AND date <= ? ORDER BY date DESC, id DESC LIMIT 1
+         )
+         WHERE mm.active = 1 ORDER BY mm.name`,
+      )
+      .all(date) as any[]
+  ).map((r) => ({
+    metricId: r.id,
+    name: r.name,
+    direction: r.direction,
+    latestScore: r.latest_score ?? null,
+    latestDate: r.latest_date ?? null,
+  }));
+
+  return {
+    date,
+    sessions,
+    totalMinutes: Math.round(totalMinutes * 10) / 10,
+    byKind,
+    assessmentsToday,
+    metricsLatest,
+  };
 }
 
 // ---------------------------------------------------------------------------

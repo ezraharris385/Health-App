@@ -197,6 +197,99 @@ export interface DailyNutritionSummary {
 }
 
 // ---------------------------------------------------------------------------
+// Mobility (stretching / yoga / posture)
+// ---------------------------------------------------------------------------
+
+export type StretchCategory = "stretch" | "yoga" | "posture";
+
+/** A stretch, yoga pose, or posture drill in the user's bank. */
+export interface Stretch {
+  id: number;
+  name: string;
+  category: StretchCategory;
+  targetAreas: string; // comma-separated, e.g. "hamstrings, hips"
+  /** How to perform it (form cues) */
+  instructions: string;
+  defaultHoldSeconds: number | null;
+  notes: string;
+  createdAt: string;
+}
+
+export interface MobilityRoutine {
+  id: number;
+  name: string;
+  description: string;
+  focus: string; // e.g. "hip mobility", "desk posture reset"
+  archived: 0 | 1;
+  createdAt: string;
+}
+
+export interface MobilityRoutineItem {
+  id: number;
+  routineId: number;
+  stretchId: number;
+  orderIndex: number;
+  holdSeconds: number | null;
+  reps: number | null;
+  perSide: 0 | 1;
+  notes: string;
+  stretchName?: string;
+}
+
+export type MobilityKind = "stretch" | "yoga" | "posture" | "mixed";
+
+export interface MobilitySession {
+  id: number;
+  date: string;
+  kind: MobilityKind;
+  routineId: number | null;
+  durationMinutes: number;
+  /** 1-5 how it felt */
+  feel: number | null;
+  /** Free-text qualitative report the agent uses for analysis */
+  report: string;
+  notes: string;
+  performedAt: string;
+  routineName?: string;
+}
+
+/** A user-defined qualitative metric tracked over time (rated 1-10). */
+export interface MobilityMetric {
+  id: number;
+  name: string; // e.g. "Hamstring flexibility", "Morning back stiffness"
+  description: string;
+  direction: "higher_better" | "lower_better";
+  active: 0 | 1;
+  createdAt: string;
+}
+
+export interface MobilityAssessment {
+  id: number;
+  date: string;
+  metricId: number;
+  score: number; // 1-10
+  notes: string;
+  loggedAt: string;
+  metricName?: string;
+}
+
+export interface MobilityDaySummary {
+  date: string;
+  sessions: MobilitySession[];
+  totalMinutes: number;
+  byKind: Partial<Record<MobilityKind, number>>;
+  assessmentsToday: MobilityAssessment[];
+  /** Latest score per active metric (whenever it was last rated) */
+  metricsLatest: {
+    metricId: number;
+    name: string;
+    direction: "higher_better" | "lower_better";
+    latestScore: number | null;
+    latestDate: string | null;
+  }[];
+}
+
+// ---------------------------------------------------------------------------
 // Sleep
 // ---------------------------------------------------------------------------
 
@@ -271,6 +364,7 @@ export interface DailyScore {
   nutrition: number;
   sleep: number;
   vitamins: number;
+  mobility: number;
   breakdown: Record<string, string>; // human-readable explanation per component
 }
 
@@ -284,7 +378,7 @@ export interface ScoreHistory {
 // Agents
 // ---------------------------------------------------------------------------
 
-export type AgentName = "workout" | "nutrition" | "sleep" | "vitamins" | "master";
+export type AgentName = "workout" | "nutrition" | "sleep" | "vitamins" | "mobility" | "master";
 
 export interface AgentConversation {
   id: number;

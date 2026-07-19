@@ -171,6 +171,70 @@ CREATE TABLE IF NOT EXISTS weight_logs (
   logged_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Mobility (stretching / yoga / posture) --------------------------------------
+CREATE TABLE IF NOT EXISTS stretches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'stretch' CHECK (category IN ('stretch','yoga','posture')),
+  target_areas TEXT NOT NULL DEFAULT '',
+  instructions TEXT NOT NULL DEFAULT '',
+  default_hold_seconds INTEGER,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS mobility_routines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  focus TEXT NOT NULL DEFAULT '',
+  archived INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS mobility_routine_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  routine_id INTEGER NOT NULL REFERENCES mobility_routines(id) ON DELETE CASCADE,
+  stretch_id INTEGER NOT NULL REFERENCES stretches(id) ON DELETE CASCADE,
+  order_index INTEGER NOT NULL DEFAULT 0,
+  hold_seconds INTEGER,
+  reps INTEGER,
+  per_side INTEGER NOT NULL DEFAULT 0,
+  notes TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS mobility_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'stretch' CHECK (kind IN ('stretch','yoga','posture','mixed')),
+  routine_id INTEGER REFERENCES mobility_routines(id) ON DELETE SET NULL,
+  duration_minutes REAL NOT NULL DEFAULT 0,
+  feel INTEGER,
+  report TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  performed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mobility_sessions_date ON mobility_sessions(date);
+
+CREATE TABLE IF NOT EXISTS mobility_metrics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  direction TEXT NOT NULL DEFAULT 'higher_better' CHECK (direction IN ('higher_better','lower_better')),
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS mobility_assessments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT NOT NULL,
+  metric_id INTEGER NOT NULL REFERENCES mobility_metrics(id) ON DELETE CASCADE,
+  score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 10),
+  notes TEXT NOT NULL DEFAULT '',
+  logged_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mobility_assessments_date ON mobility_assessments(date);
+
 -- Sleep ----------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sleep_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

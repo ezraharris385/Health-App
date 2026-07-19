@@ -93,6 +93,7 @@ export default function DashboardPage() {
   const wa = overview.water;
   const sl = overview.sleep;
   const vi = overview.vitamins;
+  const mo = overview.mobility;
   const wt = overview.weight;
 
   const workoutStatusLabel =
@@ -106,7 +107,7 @@ export default function DashboardPage() {
     <div>
       <h1 className="page-title">Dashboard</h1>
       <p className="page-sub">
-        {overview.date} — your day across all four segments.
+        {overview.date} — your day across all five segments.
         {overview.goalStatement ? ` Goal: ${overview.goalStatement}` : ""}
       </p>
 
@@ -119,14 +120,15 @@ export default function DashboardPage() {
           </span>
           <span className={`delta ${deltaDir}`}>{deltaText}</span>
         </div>
-        <StatTile label="Workout · 25%" value={score.workout} delta={score.breakdown.workout} />
+        <StatTile label="Workout · 22%" value={score.workout} delta={score.breakdown.workout} />
         <StatTile
-          label="Nutrition · 30%"
+          label="Nutrition · 28%"
           value={score.nutrition}
           delta={[score.breakdown.nutrition, score.breakdown.water].filter(Boolean).join(" ")}
         />
-        <StatTile label="Sleep · 25%" value={score.sleep} delta={score.breakdown.sleep} />
-        <StatTile label="Vitamins · 20%" value={score.vitamins} delta={score.breakdown.vitamins} />
+        <StatTile label="Sleep · 22%" value={score.sleep} delta={score.breakdown.sleep} />
+        <StatTile label="Vitamins · 15%" value={score.vitamins} delta={score.breakdown.vitamins} />
+        <StatTile label="Mobility · 13%" value={score.mobility} delta={score.breakdown.mobility} />
       </div>
 
       {/* Coordinator chat + score trend */}
@@ -258,6 +260,30 @@ export default function DashboardPage() {
             {vi.activeSupplements > 0
               ? `${vi.supplementsTaken}/${vi.activeSupplements} supplements taken`
               : "no active supplements"}
+          </span>
+        </SegmentCard>
+
+        <SegmentCard title="Mobility" to="/mobility" color="var(--series-3)">
+          {mo.sessionCount > 0 ? (
+            <div className="row wrap">
+              <span className="chip">
+                {mo.sessionCount} session{mo.sessionCount === 1 ? "" : "s"} · {mo.totalMinutes} min
+              </span>
+              {mo.kinds.map((k) => (
+                <span key={k} className="chip">
+                  {k}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="empty" style={{ padding: 0 }}>
+              No stretching, yoga, or posture work logged today.
+            </p>
+          )}
+          <span style={{ fontSize: 13, color: "var(--ink-2)" }}>
+            {mo.metricsTracked > 0
+              ? `${mo.metricsTracked} qualitative metric${mo.metricsTracked === 1 ? "" : "s"} tracked`
+              : "No qualitative metrics defined yet."}
           </span>
         </SegmentCard>
       </div>

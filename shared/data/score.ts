@@ -3,11 +3,12 @@
  * mean. Formulas are deliberately simple and documented so the master agent
  * (and the user) can explain any number.
  *
- * Weights: workout 25%, nutrition 30% (incl. water), sleep 25%, vitamins 20%.
+ * Weights: workout 22%, nutrition 28% (incl. water), sleep 22%, vitamins 15%, mobility 13%.
  */
 import { daysAgoStr, dateRange, todayStr } from "./db";
 import { getSettings } from "./settingsStore";
 import {
+  getMobilityDaySummary,
   getNutritionSummary,
   getSleepForDate,
   getVitaminSummary,
@@ -15,7 +16,7 @@ import {
 } from "./summaries";
 import type { DailyScore, ScoreHistory } from "../types";
 
-const WEIGHTS = { workout: 0.25, nutrition: 0.3, sleep: 0.25, vitamins: 0.2 };
+const WEIGHTS = { workout: 0.22, nutrition: 0.28, sleep: 0.22, vitamins: 0.15, mobility: 0.13 };
 
 export function computeDailyScore(date: string): DailyScore {
   const breakdown: Record<string, string> = {};
@@ -80,11 +81,24 @@ export function computeDailyScore(date: string): DailyScore {
       : v.coverage.reduce((acc, c) => acc + c.percent, 0) / v.coverage.length;
   breakdown.vitamins = `Average micronutrient coverage ${Math.round(vitamins)}% across ${v.coverage.length} tracked nutrients.`;
 
+  // --- Mobility: any stretching/yoga/posture session earns full credit; it's a
+  // daily habit (no rest-day concept), so nothing logged scores a low baseline.
+  const m = getMobilityDaySummary(date);
+  let mobility: number;
+  if (m.sessions.length > 0) {
+    mobility = 100;
+    breakdown.mobility = `${m.sessions.length} mobility session(s), ${m.totalMinutes} min total.`;
+  } else {
+    mobility = 45;
+    breakdown.mobility = "No stretching/yoga/posture logged.";
+  }
+
   const total =
     WEIGHTS.workout * workout +
     WEIGHTS.nutrition * nutrition +
     WEIGHTS.sleep * sleep +
-    WEIGHTS.vitamins * vitamins;
+    WEIGHTS.vitamins * vitamins +
+    WEIGHTS.mobility * mobility;
 
   return {
     date,
@@ -93,6 +107,7 @@ export function computeDailyScore(date: string): DailyScore {
     nutrition: Math.round(nutrition),
     sleep: Math.round(sleep),
     vitamins: Math.round(vitamins),
+    mobility: Math.round(mobility),
     breakdown,
   };
 }

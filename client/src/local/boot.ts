@@ -14,6 +14,7 @@ import { registerRoutesWorkout } from "./api/workout";
 import { registerRoutesNutrition } from "./api/nutrition";
 import { registerRoutesSleep } from "./api/sleep";
 import { registerRoutesVitamins } from "./api/vitamins";
+import { registerRoutesMobility } from "./api/mobility";
 import { registerRoutesDashboard } from "./api/dashboard";
 import { registerRoutesAgents } from "./api/agents";
 import { registerRoutesSettings } from "./api/settings";
@@ -68,6 +69,7 @@ export async function initLocalBackend(): Promise<void> {
   registerRoutesNutrition();
   registerRoutesSleep();
   registerRoutesVitamins();
+  registerRoutesMobility();
   registerRoutesDashboard();
   registerRoutesAgents();
   registerRoutesSettings();

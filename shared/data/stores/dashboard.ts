@@ -14,6 +14,7 @@ import { db, isValidDateStr, todayStr } from "../db";
 import { getSettings } from "../settingsStore";
 import { computeDailyScore } from "../score";
 import {
+  getMobilityDaySummary,
   getNutritionSummary,
   getSleepForDate,
   getVitaminSummary,
@@ -96,6 +97,12 @@ export interface DashboardOverview {
     supplementsTaken: number;
     activeSupplements: number;
   };
+  mobility: {
+    sessionCount: number;
+    totalMinutes: number;
+    kinds: string[];
+    metricsTracked: number;
+  };
   weight: {
     latest: number | null;
     date: string | null;
@@ -128,6 +135,7 @@ export function buildOverview(date: string): DashboardOverview {
   const n = getNutritionSummary(date);
   const s = getSleepForDate(date);
   const v = getVitaminSummary(date);
+  const m = getMobilityDaySummary(date);
   const averageCoveragePercent =
     v.coverage.length === 0
       ? 0
@@ -164,6 +172,12 @@ export function buildOverview(date: string): DashboardOverview {
       nutrientsTracked: v.coverage.length,
       supplementsTaken: v.supplementsTaken.length,
       activeSupplements: v.activeSupplements.length,
+    },
+    mobility: {
+      sessionCount: m.sessions.length,
+      totalMinutes: m.totalMinutes,
+      kinds: Object.keys(m.byKind),
+      metricsTracked: m.metricsLatest.length,
     },
     weight: {
       latest: weightRow?.weight ?? null,

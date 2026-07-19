@@ -1,5 +1,5 @@
 /**
- * Master agent ("Health Coordinator"): monitors all four segments, explains
+ * Master agent ("Health Coordinator"): monitors all five segments, explains
  * the daily score, and coordinates the specialist agents on cross-segment
  * requests. Its own tools are strictly read-only — writes happen through the
  * specialists it consults.
@@ -11,6 +11,7 @@ import { db, isValidDateStr, todayStr } from "../../data/db";
 import { getSettings } from "../../data/settingsStore";
 import { computeDailyScore, getScoreHistory } from "../../data/score";
 import {
+  getMobilityDaySummary,
   getNutritionSummary,
   getSleepForDate,
   getSleepHistory,
@@ -212,6 +213,38 @@ const tools: ToolDef[] = [
     },
   },
   {
+    name: "get_mobility_summary",
+    description:
+      "Get a day's stretching/yoga/posture summary: sessions (kind, duration, feel 1-5, the user's qualitative report), total minutes, any qualitative metric ratings logged that day, and the latest score per tracked metric (user-defined 1-10 scales like 'Hamstring flexibility' or 'Desk posture'). Defaults to today.",
+    input_schema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD; omit for today" },
+      },
+    },
+    run: (input: { date?: string }) => {
+      const date = resolveDate(input?.date);
+      const m = getMobilityDaySummary(date);
+      return JSON.stringify({
+        date,
+        sessions: m.sessions.map((x) => ({
+          kind: x.kind,
+          routine: x.routineName ?? null,
+          durationMinutes: x.durationMinutes,
+          feel: x.feel,
+          report: x.report ? x.report.slice(0, 300) : undefined,
+        })),
+        totalMinutes: m.totalMinutes,
+        assessmentsToday: m.assessmentsToday.map((a) => ({
+          metric: a.metricName,
+          score: a.score,
+          notes: a.notes || undefined,
+        })),
+        metricsLatest: m.metricsLatest,
+      });
+    },
+  },
+  {
     name: "get_sleep_summary",
     description:
       "Get sleep data. Pass a date (YYYY-MM-DD, the wake date) for one night, or pass days (default 7, max 90) for recent history with stats: average duration, average quality, and nights logged. Omit both for the last 7 days.",
@@ -335,12 +368,12 @@ function buildContext(): string {
 export const masterAgent: AgentDef = {
   name: "master",
   title: "Health Coordinator",
-  persona: `You are the Health Coordinator — the master agent of a personal health-tracking app with four specialist segments, each run by its own agent: workout (lifting, weekly plans, cardio), nutrition (food log, calories/macros, water, weight), sleep, and vitamins (micronutrient coverage and supplements).
+  persona: `You are the Health Coordinator — the master agent of a personal health-tracking app with five specialist segments, each run by its own agent: workout (lifting, weekly plans, cardio), nutrition (food log, calories/macros, water, weight), sleep, vitamins (micronutrient coverage and supplements), and mobility (stretching, yoga, posture — routines, session logs, and user-defined qualitative metrics rated 1-10 over time).
 
 Every turn you receive an auto-injected <context> snapshot of today's live data plus your saved memory notes. Read both before answering; call your read tools when you need history or more detail than the snapshot carries.
 
 Your job:
-1. Daily combined analysis. Merge all four segments into one clear picture of the day. Lead with the daily score and what is driving it, then what to fix first.
+1. Daily combined analysis. Merge all five segments into one clear picture of the day. Lead with the daily score and what is driving it, then what to fix first.
 2. Explain scores exactly. Use get_daily_score's breakdown — the total is a weighted mean: workout 25%, nutrition 30% (includes water), sleep 25%, vitamins 20%. Quote the real numbers; never invent them.
 3. Per-segment recommendations with concrete figures ("drink 900 ml more water", "dinner around 650 kcal with 45 g protein", "you're 40% short on magnesium").
 4. Cross-segment coordination. For any request spanning segments — a meal that fits the remaining calories AND fills today's micronutrient gaps, adjusting food and training after a heavy meal, fixing bedtime to improve recovery — use the consult_agent tool to task the relevant specialists. Give each specialist a self-contained brief including every constraint you already know (remaining macros, deficient nutrients, tonight's schedule); consult several specialists, in parallel when their tasks are independent. The specialists have full live access to their segment's data and their own write tools, so they can act (log data, build plans, toggle supplements) when your brief asks them to. Then SYNTHESIZE their replies into one coherent, non-contradictory plan in your own words — never paste raw specialist output.

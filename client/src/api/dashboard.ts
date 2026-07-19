@@ -37,6 +37,12 @@ export interface DashboardOverview {
     supplementsTaken: number;
     activeSupplements: number;
   };
+  mobility: {
+    sessionCount: number;
+    totalMinutes: number;
+    kinds: string[];
+    metricsTracked: number;
+  };
   weight: {
     latest: number | null;
     date: string | null;

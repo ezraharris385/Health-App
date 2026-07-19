@@ -38,10 +38,29 @@ client/src/App.tsx       Routing/nav. DO NOT EDIT.
 | nutrition  | `server/routes/nutrition.ts`, `server/agents/defs/nutrition.ts`, `client/src/pages/Nutrition/**`, `client/src/api/nutrition.ts` |
 | sleep      | `server/routes/sleep.ts`, `server/agents/defs/sleep.ts`, `client/src/pages/Sleep/**`, `client/src/api/sleep.ts` |
 | vitamins   | `server/routes/vitamins.ts`, `server/agents/defs/vitamins.ts`, `client/src/pages/Vitamins/**`, `client/src/api/vitamins.ts` |
+| mobility   | `shared/data/stores/mobility.ts`, `server/routes/mobility.ts`, `shared/agents/defs/mobility.ts`, `client/src/pages/Mobility/**`, `client/src/api/mobility.ts`, `client/src/local/api/mobility.ts` |
 | dashboard  | `server/routes/dashboard.ts`, `server/agents/defs/master.ts`, `client/src/pages/Dashboard/**`, `client/src/api/dashboard.ts` |
 
 Everything else is shared infrastructure — read it, never write it. If a shared
 helper is missing, implement the logic inside your own files instead.
+
+## Dual-mode note (post-refactor)
+
+The app now runs in two modes and segment logic lives in **shared stores**:
+
+- `shared/data/stores/<name>.ts` owns ALL validation + data access
+  (runtime-agnostic; uses the injected `db` handle from `shared/data/db.ts`).
+  Export `BadRequestError`/`NotFoundError` + `parseDate`/`parseDays`/`parseId`
+  helpers (copy the shape used in `shared/data/stores/vitamins.ts`).
+- `server/routes/<name>.ts` is thin Express glue: `export * from` the store and
+  map store errors → 400/404/500 (see `server/routes/vitamins.ts`).
+- `client/src/local/api/<name>.ts` registers the exact same routes on the
+  in-browser router for GitHub-Pages mode: `export function
+  registerRoutes<Name>(): void` using `get/post/put/del` from `../router`,
+  mapping store errors → `LocalApiError` (see `client/src/local/api/vitamins.ts`).
+  It must mirror the Express router path-for-path, default-for-default.
+- Agent defs live in `shared/agents/defs/<name>.ts` (framework in
+  `shared/agents/framework.ts`, registry in `shared/agents/registry.ts`).
 
 ## Conventions
 
@@ -137,6 +156,34 @@ redefine them. registry.ts gives master `consult_agent` — do not add it in the
   deficient nutrients (agent knowledge + can create foods is NOT allowed — food
   creation belongs to nutrition; instead it recommends and the user/nutrition
   agent logs).
+
+### mobility (stretching / yoga / posture)
+- Stretch bank CRUD: name, category (`stretch`|`yoga`|`posture`), targetAreas
+  (comma-separated), instructions (form cues), defaultHoldSeconds, notes.
+- Routines: CRUD with ordered items referencing bank stretches (holdSeconds,
+  reps, perSide, notes); archive instead of destructive delete when in use;
+  creating a routine accepts nested items in one call.
+- Sessions: log a session (date, kind `stretch`|`yoga`|`posture`|`mixed`,
+  optional routine, durationMinutes, feel 1-5, free-text qualitative `report`,
+  notes); edit/delete; 30-day minutes history chart.
+- Qualitative metrics: user-defined named metrics (e.g. "Hamstring flexibility",
+  "Morning back stiffness") with direction `higher_better`|`lower_better`;
+  assessments rate a metric 1-10 on a date; per-metric TrendLine over time.
+- Tables: `stretches`, `mobility_routines`, `mobility_routine_items`,
+  `mobility_sessions`, `mobility_metrics`, `mobility_assessments` (all exist in
+  `shared/data/db.ts`). Shared summary: `getMobilityDaySummary(date)` in
+  `shared/data/summaries.ts` (returns `MobilityDaySummary`). Types in
+  `shared/types.ts` (Stretch, MobilityRoutine[Item], MobilitySession,
+  MobilityMetric, MobilityAssessment, MobilityDaySummary).
+- Page: today StatTiles (sessions/minutes/metrics tracked), quick session log
+  form, per-active-metric quick 1-10 rating + TrendLine charts, 30-day minutes
+  HistoryBars, routine manager (nested item editor from bank), stretch bank
+  manager, recent sessions table, AgentChat agent="mobility".
+- Agent tools (read+write): bank CRUD, create FULL routines (nested items) in
+  one flow, log/update sessions (including appending post-session reports),
+  metric CRUD, log assessments, read metric trends (direction-aware) and recent
+  session reports for qualitative analysis. Persona: mobility coach; asks for
+  post-session qualitative reports; saves injuries/tight areas/goals to memory.
 
 ### dashboard (master)
 - Routes: `GET /api/dashboard/score?date=`, `GET /api/dashboard/history?days=30`

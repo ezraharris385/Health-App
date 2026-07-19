@@ -10,6 +10,7 @@ import { workoutRouter } from "./routes/workout";
 import { nutritionRouter } from "./routes/nutrition";
 import { sleepRouter } from "./routes/sleep";
 import { vitaminsRouter } from "./routes/vitamins";
+import { mobilityRouter } from "./routes/mobility";
 import { dashboardRouter } from "./routes/dashboard";
 import { hasApiKey } from "./anthropic";
 
@@ -23,6 +24,7 @@ app.use("/api/workout", workoutRouter);
 app.use("/api/nutrition", nutritionRouter);
 app.use("/api/sleep", sleepRouter);
 app.use("/api/vitamins", vitaminsRouter);
+app.use("/api/mobility", mobilityRouter);
 app.use("/api/dashboard", dashboardRouter);
 
 app.get("/api/health", (_req, res) => {

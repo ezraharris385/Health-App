@@ -4,6 +4,7 @@ import WorkoutPage from "./pages/Workout";
 import NutritionPage from "./pages/Nutrition";
 import SleepPage from "./pages/Sleep";
 import VitaminsPage from "./pages/Vitamins";
+import MobilityPage from "./pages/Mobility";
 import SettingsPage from "./pages/Settings";
 
 const NAV = [
@@ -12,6 +13,7 @@ const NAV = [
   { to: "/nutrition", label: "Nutrition", color: "var(--series-2)" },
   { to: "/sleep", label: "Sleep", color: "var(--series-7)" },
   { to: "/vitamins", label: "Vitamins", color: "var(--series-5)" },
+  { to: "/mobility", label: "Mobility", color: "var(--series-3)" },
   { to: "/settings", label: "Settings", color: "var(--muted)" },
 ];
 
@@ -40,6 +42,7 @@ export default function App() {
           <Route path="/nutrition" element={<NutritionPage />} />
           <Route path="/sleep" element={<SleepPage />} />
           <Route path="/vitamins" element={<VitaminsPage />} />
+          <Route path="/mobility" element={<MobilityPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
