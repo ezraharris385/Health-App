@@ -43,12 +43,26 @@ export function SessionLogger(props: {
     return null;
   }, [openSession, plans]);
 
-  // Preselect the first exercise of the followed plan day (or first library exercise)
+  // Preselect the first exercise of the followed plan day (or first library exercise).
+  // Re-run once per newly started session (keyed on session id) so a plan day's
+  // first exercise wins over the mount-time library default, without stomping
+  // manual dropdown choices mid-session.
+  const [preselectedSessionId, setPreselectedSessionId] = useState<number | null>(null);
   useEffect(() => {
-    if (exerciseId) return;
-    const first = planDay?.exercises[0]?.exerciseId ?? exercises[0]?.id;
-    if (first) setExerciseId(String(first));
-  }, [planDay, exercises, exerciseId]);
+    const sid = openSession?.id ?? null;
+    if (sid !== null && sid !== preselectedSessionId) {
+      setPreselectedSessionId(sid);
+      const first = planDay?.exercises[0]?.exerciseId ?? exercises[0]?.id;
+      if (first) {
+        setExerciseId(String(first));
+        return;
+      }
+    }
+    if (!exerciseId) {
+      const first = planDay?.exercises[0]?.exerciseId ?? exercises[0]?.id;
+      if (first) setExerciseId(String(first));
+    }
+  }, [openSession, planDay, exercises, exerciseId, preselectedSessionId]);
 
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);

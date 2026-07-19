@@ -280,7 +280,7 @@ function DayView(props: {
                 <td>{pe.targetWeight ?? "—"}</td>
                 <td>{pe.restSeconds != null ? `${pe.restSeconds}s` : "—"}</td>
                 <td>
-                  <div className="row" style={{ gap: 2 }}>
+                  <div className="row" style={{ gap: 8 }}>
                     <button className="btn small" disabled={busy || i === 0} onClick={() => move(i, -1)}>
                       ↑
                     </button>
@@ -294,7 +294,11 @@ function DayView(props: {
                     <button
                       className="btn small danger"
                       disabled={busy}
-                      onClick={() => act(() => workoutApi.deletePlanDayExercise(pe.id))}
+                      onClick={() => {
+                        if (window.confirm(`Remove "${pe.exerciseName}" from this day?`)) {
+                          act(() => workoutApi.deletePlanDayExercise(pe.id));
+                        }
+                      }}
                     >
                       ×
                     </button>

@@ -75,6 +75,22 @@ function parseDays(raw: unknown, fallback: number): number {
   return Math.floor(n);
 }
 
+/**
+ * One completed log per wake date: history, day scoring and stats all treat a
+ * date as a single night, so a second completed log would make them disagree.
+ */
+function assertNoCompletedLogForDate(date: string, excludeId?: number): void {
+  const row = db
+    .prepare("SELECT id FROM sleep_logs WHERE date = ? AND wake_time IS NOT NULL AND id != ?")
+    .get(date, excludeId ?? -1) as any;
+  if (row) {
+    throw new SleepError(
+      409,
+      `A completed sleep log already exists for ${date} (#${row.id}) — edit or delete it instead`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Data helpers (exported — reused by the sleep agent's tools)
 // ---------------------------------------------------------------------------
@@ -128,8 +144,12 @@ export function wakeUp(
     throw new SleepError(409, "No open sleep log — tap 'Going to bed' first, or add a manual entry.");
   }
   const wake = opts.wakeTime === undefined ? new Date() : parseDateTime(opts.wakeTime, "wakeTime");
+  if (wake.getTime() > Date.now() + 60_000) {
+    throw new SleepError(400, "wakeTime cannot be in the future");
+  }
   const bed = new Date(open.bedTime);
   validateWindow(bed, wake);
+  assertNoCompletedLogForDate(localDateStr(wake), open.id);
   const quality = opts.quality === undefined ? null : normalizeQuality(opts.quality);
   const notes = opts.notes === undefined ? "" : normalizeNotes(opts.notes);
   db.prepare("UPDATE sleep_logs SET wake_time = ?, date = ?, quality = ?, notes = ? WHERE id = ?").run(
@@ -151,7 +171,11 @@ export function createSleepLog(input: {
 }): SleepLog {
   const bed = parseDateTime(input.bedTime, "bedTime");
   const wake = parseDateTime(input.wakeTime, "wakeTime");
+  if (wake.getTime() > Date.now() + 60_000) {
+    throw new SleepError(400, "wakeTime cannot be in the future");
+  }
   validateWindow(bed, wake);
+  assertNoCompletedLogForDate(localDateStr(wake));
   const info = db
     .prepare("INSERT INTO sleep_logs (date, bed_time, wake_time, quality, notes) VALUES (?, ?, ?, ?, ?)")
     .run(
@@ -183,10 +207,14 @@ export function updateSleepLog(
         : null
       : parseDateTime(patch.wakeTime, "wakeTime");
   if (wake) validateWindow(bed, wake);
+  if (wake && wake.getTime() > Date.now() + 60_000) {
+    throw new SleepError(400, "wakeTime cannot be in the future");
+  }
 
   const quality = patch.quality === undefined ? existing.quality : normalizeQuality(patch.quality);
   const notes = patch.notes === undefined ? existing.notes : normalizeNotes(patch.notes);
   const date = wake ? localDateStr(wake) : localDateStr(bed);
+  if (wake) assertNoCompletedLogForDate(date, id);
 
   db.prepare(
     "UPDATE sleep_logs SET date = ?, bed_time = ?, wake_time = ?, quality = ?, notes = ? WHERE id = ?",
@@ -197,6 +225,14 @@ export function updateSleepLog(
 export function deleteSleepLog(id: number): void {
   const info = db.prepare("DELETE FROM sleep_logs WHERE id = ?").run(id);
   if (info.changes === 0) throw new SleepError(404, `No sleep log #${id}`);
+}
+
+/** The most recent completed log, regardless of how long ago it was. */
+export function getLastCompletedSleepLog(): SleepLog | null {
+  const row = db
+    .prepare("SELECT * FROM sleep_logs WHERE wake_time IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1")
+    .get() as any;
+  return row ? mapSleep(row) : null;
 }
 
 /** Recent logs (window by attribution date), open log pinned first, newest first. */

@@ -26,6 +26,7 @@ export default function VitaminsPage() {
   const [history, setHistory] = useState<CoverageHistoryPoint[]>([]);
   const [adherence, setAdherence] = useState<AdherencePoint[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
 
   const loadAll = useCallback(async () => {
     try {
@@ -64,6 +65,9 @@ export default function VitaminsPage() {
     [summary],
   );
   const activeSupps = summary?.activeSupplements ?? [];
+  // Count only taken supplements that are still active, so the tile's
+  // numerator can never exceed its active-supplement denominator.
+  const takenActiveCount = activeSupps.filter((s) => takenIds.has(s.id)).length;
 
   const historyData = useMemo(
     () => history.map((p) => ({ date: p.date.slice(5), avg: p.avgPercent })),
@@ -75,12 +79,17 @@ export default function VitaminsPage() {
   );
   const activeCount = adherence.length > 0 ? adherence[adherence.length - 1].activeCount : 0;
 
-  async function toggleTaken(supplementId: number) {
+  async function toggleTaken(supplementId: number, next: boolean) {
+    setTogglingId(supplementId);
     try {
-      await vitaminsApi.toggleTaken(supplementId);
+      // Send the explicit desired state so an accidental double-click replays
+      // the same idempotent request instead of toggling the state back.
+      await vitaminsApi.toggleTaken(supplementId, undefined, next);
       await loadAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to toggle supplement");
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -105,7 +114,7 @@ export default function VitaminsPage() {
         />
         <StatTile
           label="Supplements taken"
-          value={`${takenIds.size}/${activeSupps.length}`}
+          value={`${takenActiveCount}/${activeSupps.length}`}
           delta="of active today"
         />
         <StatTile
@@ -164,7 +173,8 @@ export default function VitaminsPage() {
                       </div>
                       <button
                         className={taken ? "btn small primary" : "btn small"}
-                        onClick={() => toggleTaken(s.id)}
+                        onClick={() => toggleTaken(s.id, !taken)}
+                        disabled={togglingId === s.id}
                       >
                         {taken ? "Taken ✓" : "Mark taken"}
                       </button>

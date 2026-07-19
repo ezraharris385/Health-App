@@ -10,6 +10,7 @@ import {
   computeSleepStats,
   createSleepLog,
   deleteSleepLog,
+  getLastCompletedSleepLog,
   getOpenSleepLog,
   getRecentSleepLogs,
   getSleepLogById,
@@ -36,7 +37,7 @@ const tools: ToolDef[] = [
     input_schema: { type: "object", properties: {} },
     run: () => {
       const open = getOpenSleepLog();
-      const lastNight = getRecentSleepLogs(30).find((l) => l.durationHours != null) ?? null;
+      const lastNight = getLastCompletedSleepLog();
       return JSON.stringify({
         currentlySleeping: open
           ? {
@@ -196,7 +197,7 @@ export const sleepAgent: AgentDef = {
     const goals = getSettings().goals;
     const open = getOpenSleepLog();
     const recent = getRecentSleepLogs(14);
-    const lastNight = recent.find((l) => l.durationHours != null) ?? null;
+    const lastNight = getLastCompletedSleepLog();
     const stats = computeSleepStats(30);
     const weekAgo = daysAgoStr(6);
     return JSON.stringify({

@@ -11,6 +11,7 @@
 import { Router, type Response } from "express";
 import { db, dateRange, daysAgoStr, isValidDateStr, todayStr } from "../db";
 import { getVitaminSummary, mapSupplement } from "../summaries";
+import { getSettings } from "../settingsStore";
 import { NUTRIENT_BY_KEY, NUTRIENT_KEYS } from "../../shared/nutrients";
 import type { MicroMap, Supplement } from "../../shared/types";
 
@@ -249,6 +250,7 @@ export interface CoverageTrendAnalysis {
 }
 
 export function analyzeCoverageTrends(days: number): CoverageTrendAnalysis {
+  const overrides = getSettings().nutrientTargetOverrides;
   const from = daysAgoStr(days - 1);
   const to = todayStr();
   const dates = dateRange(from, to);
@@ -273,11 +275,15 @@ export function analyzeCoverageTrends(days: number): CoverageTrendAnalysis {
   const nutrients: NutrientTrend[] = NUTRIENT_KEYS.map((key) => {
     const def = NUTRIENT_BY_KEY[key];
     const a = acc[key];
+    // Report the same effective target getVitaminSummary uses for percentages
+    // (per-user override when set, static default otherwise).
+    const ov = overrides[key];
+    const target = typeof ov === "number" && ov > 0 ? ov : def.dailyTarget;
     return {
       key,
       label: def.label,
       unit: def.unit,
-      target: def.dailyTarget,
+      target,
       upperLimit: def.upperLimit,
       avgPercent: Math.round(a.percent / n),
       avgConsumed: round2(a.consumed / n),
