@@ -181,7 +181,7 @@ function roundTotals(t: MacroTotals) {
 }
 
 export function getWeightHistory(days: number): WeightLog[] {
-  const start = daysAgoStr(days);
+  const start = daysAgoStr(days - 1);
   return (
     db
       .prepare("SELECT * FROM weight_logs WHERE date >= ? ORDER BY date")
@@ -262,14 +262,18 @@ export function getVitaminSummary(date: string): DailyVitaminSummary {
 // ---------------------------------------------------------------------------
 
 export function getSleepForDate(date: string): SleepLog | null {
+  // Completed logs only — an open "going to bed" log (wake_time NULL) carries a
+  // provisional date and must not shadow the finished night for scoring/tiles.
   const row = db
-    .prepare("SELECT * FROM sleep_logs WHERE date = ? ORDER BY id DESC LIMIT 1")
+    .prepare(
+      "SELECT * FROM sleep_logs WHERE date = ? AND wake_time IS NOT NULL ORDER BY id DESC LIMIT 1",
+    )
     .get(date) as any;
   return row ? mapSleep(row) : null;
 }
 
 export function getSleepHistory(days: number): SleepLog[] {
-  const start = daysAgoStr(days);
+  const start = daysAgoStr(days - 1);
   return (
     db.prepare("SELECT * FROM sleep_logs WHERE date >= ? ORDER BY date").all(start) as any[]
   ).map(mapSleep);
@@ -306,13 +310,15 @@ export function getWorkoutDaySummary(date: string): WorkoutDaySummary {
   ).map(mapCardio);
 
   const dow = new Date(`${date}T12:00:00`).getDay();
+  // A plan only "schedules" dates on/after its creation — otherwise creating a
+  // plan today would retroactively mark every past matching weekday as skipped.
   const scheduledPlanDays = db
     .prepare(
       `SELECT pd.id, pd.plan_id AS planId, wp.name AS planName, pd.name
        FROM plan_days pd JOIN workout_plans wp ON wp.id = pd.plan_id
-       WHERE pd.day_of_week = ? AND wp.archived = 0`,
+       WHERE pd.day_of_week = ? AND wp.archived = 0 AND date(wp.created_at) <= ?`,
     )
-    .all(dow) as any[];
+    .all(dow, date) as any[];
 
   return { date, sessions, cardio, scheduledPlanDays };
 }

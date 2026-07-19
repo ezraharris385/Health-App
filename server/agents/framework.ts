@@ -237,6 +237,7 @@ async function runToolLoop(
   def: AgentDef,
   messages: Anthropic.MessageParam[],
   onMessage?: (role: "user" | "assistant", content: unknown, display: string, tools: string[]) => void,
+  exhaustedMessage?: string,
 ): Promise<{ text: string; toolEvents: string[] }> {
   const client = getAnthropic();
   const tools: ToolDef[] = [...def.tools, ...memoryTools(def.name)];
@@ -263,8 +264,14 @@ async function runToolLoop(
       finalText =
         extractText(response.content) ||
         "I can't help with that request. Could we approach it differently?";
-      onMessage?.("assistant", response.content, finalText, toolEvents);
-      messages.push({ role: "assistant", content: response.content });
+      // A refusal can arrive with empty content; persisting `[]` as an
+      // assistant message would 400 every subsequent turn on replay.
+      const persistable =
+        response.content.length > 0
+          ? response.content
+          : [{ type: "text" as const, text: finalText }];
+      onMessage?.("assistant", persistable, finalText, toolEvents);
+      messages.push({ role: "assistant", content: persistable });
       return { text: finalText, toolEvents };
     }
 
@@ -315,25 +322,66 @@ async function runToolLoop(
     }
     messages.push({ role: "assistant", content: response.content });
     onMessage?.("assistant", response.content, finalText, toolEvents);
+
+    // A max_tokens cutoff can leave dangling tool_use blocks. Replaying an
+    // assistant tool_use without a matching tool_result 400s forever — close
+    // them out with error results so the conversation stays valid.
+    const dangling = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+    );
+    if (dangling.length > 0) {
+      const closers: Anthropic.ToolResultBlockParam[] = dangling.map((tu) => ({
+        type: "tool_result" as const,
+        tool_use_id: tu.id,
+        content: "Tool call was not executed — the response was cut off by the length limit.",
+        is_error: true,
+      }));
+      messages.push({ role: "user", content: closers });
+      onMessage?.("user", closers, "", []);
+    }
     return { text: finalText, toolEvents };
   }
 
-  return {
-    text: finalText || "I hit my tool-use limit for a single turn. Ask me to continue.",
-    toolEvents,
-  };
+  // Tool-iteration budget exhausted without a final text turn.
+  const fallback =
+    exhaustedMessage ??
+    "I hit my tool-use limit for this request before finishing. Ask me to continue and I'll pick up where I left off.";
+  const fallbackContent = [{ type: "text" as const, text: fallback }];
+  messages.push({ role: "assistant", content: fallbackContent });
+  onMessage?.("assistant", fallbackContent, fallback, toolEvents);
+  return { text: fallback, toolEvents };
 }
 
 /**
  * Run one persisted conversational turn for an agent.
+ * Turns on the same conversation are serialized: two simultaneous sends would
+ * otherwise interleave persisted API messages and corrupt the replay order.
  */
+const conversationLocks = new Map<number, Promise<unknown>>();
+
 export async function runAgentTurn(
   def: AgentDef,
   conversationId: number | undefined,
   userMessage: string,
 ): Promise<AgentTurnResult> {
   const convId = conversationId ?? createConversation(def.name, userMessage);
+  const prev = conversationLocks.get(convId) ?? Promise.resolve();
+  const job = prev
+    .catch(() => {})
+    .then(() => runAgentTurnLocked(def, convId, userMessage));
+  conversationLocks.set(convId, job);
+  try {
+    return await job;
+  } finally {
+    if (conversationLocks.get(convId) === job) conversationLocks.delete(convId);
+  }
+}
 
+async function runAgentTurnLocked(
+  def: AgentDef,
+  convId: number,
+  userMessage: string,
+): Promise<AgentTurnResult> {
   const messages = loadApiMessages(convId);
   const context = safeContext(def);
   const userContent: Anthropic.ContentBlockParam[] = [
@@ -383,7 +431,12 @@ export async function consultAgent(def: AgentDef, question: string): Promise<str
       content: `<context date="${todayStr()}">\n${context}\n</context>\n\nYou are being consulted by the master health coordinator agent on behalf of the user. Answer with concrete, specific data and recommendations — your reply goes to another agent, not directly to the user, so be dense and factual.\n\nQuestion: ${question}`,
     },
   ];
-  const { text } = await runToolLoop(def, messages);
+  const { text } = await runToolLoop(
+    def,
+    messages,
+    undefined,
+    "(Consultation incomplete: the specialist hit its tool-use limit before producing a final answer. Treat any partial information as unverified.)",
+  );
   return text;
 }
 

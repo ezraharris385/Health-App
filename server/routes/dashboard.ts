@@ -13,6 +13,7 @@ import {
   getVitaminSummary,
   getWorkoutDaySummary,
 } from "../summaries";
+import { getOpenSleepLog } from "./sleep";
 import type { DailyScore } from "../../shared/types";
 
 export const dashboardRouter = Router();
@@ -114,7 +115,9 @@ export function buildOverview(date: string): DashboardOverview {
     water: { totalMl: Math.round(n.waterMl), goalMl: goals.waterGoalMl },
     sleep: {
       logged: s != null,
-      inProgress: s != null && s.wakeTime == null,
+      // getSleepForDate only returns completed nights now; the in-progress flag
+      // comes from the (single) open log, wherever its provisional date sits.
+      inProgress: getOpenSleepLog() != null,
       durationHours: s?.durationHours ?? null,
       targetHours: goals.sleepTargetHours,
       quality: s?.quality ?? null,

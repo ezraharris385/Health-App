@@ -141,53 +141,8 @@ body {
   .grid.cols-3, .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* ---- Phone layout: bottom tab bar ---- */
-@media (max-width: 700px) {
-  .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
-  .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .app { flex-direction: column; }
-  .sidebar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    top: auto;
-    width: 100%;
-    height: auto;
-    z-index: 50;
-    flex-direction: row;
-    justify-content: space-around;
-    gap: 0;
-    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
-    border-right: none;
-    border-top: 1px solid var(--border);
-  }
-  .sidebar .brand, .sidebar .spacer { display: none; }
-  .navlink {
-    flex-direction: column;
-    gap: 3px;
-    padding: 6px 4px;
-    font-size: 10.5px;
-    font-weight: 600;
-    flex: 1;
-    text-align: center;
-    min-width: 0;
-  }
-  .navlink .dot { width: 10px; height: 10px; }
-  .main {
-    padding: 16px 14px calc(96px + env(safe-area-inset-bottom));
-    max-width: 100%;
-  }
-  .page-title { font-size: 19px; }
-  .row { flex-wrap: wrap; }
-  .chat { height: 380px; }
-  /* prevent iOS auto-zoom on focus: inputs must be >=16px */
-  .input, select.input, textarea.input { font-size: 16px; }
-  .btn { padding: 9px 16px; min-height: 40px; }
-  .btn.small { min-height: 32px; padding: 5px 11px; }
-  /* tables scroll sideways instead of squishing */
-  table.data { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
-}
+/* (Phone layout rules live at the END of this file so they win the cascade
+   over the base component rules defined below.) */
 .row { display: flex; gap: 10px; align-items: center; }
 .row.wrap { flex-wrap: wrap; }
 .row.between { justify-content: space-between; }
@@ -281,7 +236,58 @@ table.data tr:last-child td { border-bottom: none; }
 .chat .chat-input { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid var(--grid); }
 .chat .chat-input textarea { resize: none; }
 .thinking-dots { color: var(--muted); font-size: 12px; }
+.chat-conv-select { width: 180px; padding: 3px 8px; font-size: 12px; }
 
 .empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
 .error-text { color: var(--status-critical); font-size: 13px; }
 .section-title { font-size: 15px; font-weight: 700; margin: 26px 0 10px; }
+
+/* ---- Phone layout: bottom tab bar. MUST stay the last block in this file —
+   these override base component rules of equal specificity above. ---- */
+@media (max-width: 700px) {
+  .grid.cols-2, .grid.cols-3 { grid-template-columns: 1fr; }
+  .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app { flex-direction: column; }
+  .sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: 100%;
+    height: auto;
+    z-index: 50;
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 0;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+    border-right: none;
+    border-top: 1px solid var(--border);
+  }
+  .sidebar .brand, .sidebar .spacer { display: none; }
+  .navlink {
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    flex: 1;
+    text-align: center;
+    min-width: 0;
+  }
+  .navlink .dot { width: 10px; height: 10px; }
+  .main {
+    padding: 16px 14px calc(96px + env(safe-area-inset-bottom));
+    max-width: 100%;
+  }
+  .page-title { font-size: 19px; }
+  .row { flex-wrap: wrap; }
+  .chat { height: 380px; }
+  /* prevent iOS auto-zoom on focus: inputs must be >=16px */
+  .input, select.input, textarea.input { font-size: 16px; }
+  .chat-conv-select { font-size: 16px; }
+  .btn { padding: 9px 16px; min-height: 40px; }
+  .btn.small { min-height: 32px; padding: 5px 11px; }
+  /* tables scroll sideways instead of squishing */
+  table.data { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+}

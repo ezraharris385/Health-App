@@ -63,6 +63,13 @@ export function AgentChat(props: {
       props.onReply?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reach the agent");
+      // Put the message back so it isn't lost, and re-sync from the server —
+      // the turn may have been persisted even though our request failed.
+      setInput(text);
+      if (conversationId) {
+        agentsApi.messages(conversationId).then(setMessages).catch(() => {});
+      }
+      refreshConversations();
     } finally {
       setBusy(false);
     }
@@ -74,8 +81,8 @@ export function AgentChat(props: {
         <h3>{props.title}</h3>
         <div className="row">
           <select
-            className="input"
-            style={{ width: 180, padding: "3px 8px", fontSize: 12 }}
+            className="input chat-conv-select"
+            disabled={busy}
             value={conversationId ?? ""}
             onChange={(e) =>
               setConversationId(e.target.value ? Number(e.target.value) : undefined)
@@ -91,10 +98,16 @@ export function AgentChat(props: {
           {conversationId && (
             <button
               className="btn small danger"
+              disabled={busy}
               onClick={async () => {
-                await agentsApi.deleteConversation(conversationId);
-                setConversationId(undefined);
-                refreshConversations();
+                try {
+                  await agentsApi.deleteConversation(conversationId);
+                  setConversationId(undefined);
+                  setError(null);
+                  refreshConversations();
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Failed to delete conversation");
+                }
               }}
             >
               Delete

@@ -11,8 +11,9 @@ export default function SettingsPage() {
     settingsApi.get().then(setSettings).catch((e) => setError(e.message));
   }, []);
 
-  if (error) return <p className="error-text">{error}</p>;
-  if (!settings) return <p className="empty">Loading…</p>;
+  if (!settings) {
+    return error ? <p className="error-text">{error}</p> : <p className="empty">Loading…</p>;
+  }
 
   const g = settings.goals;
   const p = settings.profile;
@@ -23,6 +24,23 @@ export default function SettingsPage() {
     setSettings({ ...settings, profile: { ...p, [key]: value } });
 
   async function save() {
+    // Guard against empty/cleared numeric fields: Number("") === 0 and a zero
+    // goal breaks every score computation downstream.
+    const required: [string, number][] = [
+      ["Calories", g.calorieGoal],
+      ["Protein", g.proteinGoalG],
+      ["Carbs", g.carbsGoalG],
+      ["Fat", g.fatGoalG],
+      ["Water", g.waterGoalMl],
+      ["Sleep target", g.sleepTargetHours],
+    ];
+    for (const [label, value] of required) {
+      if (!Number.isFinite(value) || value <= 0) {
+        setError(`${label} must be a positive number.`);
+        return;
+      }
+    }
+    setError(null);
     try {
       const next = await settingsApi.save(settings!);
       setSettings(next);
@@ -150,6 +168,7 @@ export default function SettingsPage() {
           Save settings
         </button>
         {saved && <span style={{ color: "var(--good-text)", fontSize: 13 }}>Saved ✓</span>}
+        {error && <span className="error-text">{error}</span>}
       </div>
     </div>
   );

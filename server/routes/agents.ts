@@ -61,6 +61,23 @@ agentsRouter.post("/:agent/chat", async (req, res) => {
   if (!body?.message || typeof body.message !== "string" || !body.message.trim()) {
     return res.status(400).json({ error: "message is required" });
   }
+  if (body.conversationId !== undefined && body.conversationId !== null) {
+    const convId = Number(body.conversationId);
+    if (!Number.isInteger(convId) || convId <= 0) {
+      return res.status(400).json({ error: "conversationId must be a positive integer" });
+    }
+    const conv = db
+      .prepare("SELECT agent FROM agent_conversations WHERE id = ?")
+      .get(convId) as { agent: string } | undefined;
+    if (!conv) {
+      return res.status(404).json({ error: `Conversation #${convId} no longer exists` });
+    }
+    if (conv.agent !== agentName) {
+      return res
+        .status(400)
+        .json({ error: `Conversation #${convId} belongs to the ${conv.agent} agent` });
+    }
+  }
   try {
     const result = await runAgentTurn(
       def,

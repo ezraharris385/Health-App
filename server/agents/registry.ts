@@ -57,5 +57,9 @@ export const AGENTS: Record<AgentName, AgentDef> = {
 };
 
 export function getAgent(name: string): AgentDef | undefined {
-  return AGENTS[name as AgentName];
+  // hasOwnProperty guard: URL params like "constructor" must not resolve
+  // through Object.prototype.
+  return Object.prototype.hasOwnProperty.call(AGENTS, name)
+    ? AGENTS[name as AgentName]
+    : undefined;
 }
