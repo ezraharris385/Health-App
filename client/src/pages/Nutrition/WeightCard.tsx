@@ -4,6 +4,7 @@
  */
 import { useState } from "react";
 import { nutritionApi, type WeightHistoryResponse } from "../../api/nutrition";
+import { LB } from "../../units";
 import { TrendLine } from "../../viz/ChartKit";
 import { fmtDay } from "./util";
 
@@ -17,7 +18,7 @@ export function WeightCard(props: {
   const [error, setError] = useState<string | null>(null);
 
   const wh = props.weight;
-  const unit = wh?.weightUnit ?? "lb";
+  const unit = LB; // imperial only — body weight is canonical lb, shown as lb
   const entries = wh?.entries ?? [];
   const latest = entries.length > 0 ? entries[entries.length - 1] : null;
   const data = entries.map((e) => ({ day: fmtDay(e.date), weight: e.weight }));

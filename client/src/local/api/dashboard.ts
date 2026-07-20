@@ -14,6 +14,7 @@ import {
 } from "@shared/data/stores/dashboard";
 import { todayStr } from "@shared/data/db";
 import { computeDailyScore, getScoreHistory } from "@shared/data/score";
+import { getEnergyBalance } from "@shared/data/summaries";
 
 /** Mirror of the Express respond(): map store errors to HTTP-style statuses. */
 function respond(fn: () => unknown): unknown {
@@ -38,4 +39,9 @@ export function registerRoutesDashboard(): void {
 
   // GET /api/dashboard/overview — today's cross-segment key numbers
   get("/api/dashboard/overview", () => respond(() => buildOverview(todayStr())));
+
+  // GET /api/dashboard/energy?date=YYYY-MM-DD (defaults to today) — caloric balance
+  get("/api/dashboard/energy", ({ query }) =>
+    respond(() => getEnergyBalance(parseScoreDate(query.date))),
+  );
 }

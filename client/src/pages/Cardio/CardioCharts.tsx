@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { CardioSession } from "@shared/types";
 import { ChartCard, HistoryBars, Legend, SERIES, TrendLine } from "../../viz/ChartKit";
+import { miFromKm } from "../../units";
 
 /**
  * 30-day cardio history: distance line + stacked run/walk step bars.
@@ -34,7 +35,8 @@ export function CardioCharts(props: { cardio: CardioSession[] }) {
       .slice(-30)
       .map(([date, v]) => ({
         date: date.slice(5),
-        km: Math.round(v.km * 100) / 100,
+        // Accumulated canonical km -> shown in miles.
+        mi: Math.round(miFromKm(v.km) * 100) / 100,
         runSteps: v.runSteps,
         walkSteps: v.walkSteps,
       }));
@@ -50,8 +52,8 @@ export function CardioCharts(props: { cardio: CardioSession[] }) {
             data={data}
             x="date"
             height={160}
-            unit="km"
-            series={[{ key: "km", name: "Distance", color: SERIES[0] }]}
+            unit="mi"
+            series={[{ key: "mi", name: "Distance", color: SERIES[0] }]}
           />
           <HistoryBars
             data={data}
@@ -66,7 +68,7 @@ export function CardioCharts(props: { cardio: CardioSession[] }) {
           />
           <Legend
             items={[
-              { name: "Distance (km)", color: SERIES[0] },
+              { name: "Distance (mi)", color: SERIES[0] },
               { name: "Run steps", color: SERIES[5] },
               { name: "Walked steps", color: SERIES[4] },
             ]}

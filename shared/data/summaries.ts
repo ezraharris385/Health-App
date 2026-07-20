@@ -5,11 +5,13 @@
  */
 import { db, daysAgoStr } from "./db";
 import { getSettings } from "./settingsStore";
+import { bmrMifflin, cardioBurn, strengthBurn, tdee } from "./energy";
 import { NUTRIENTS } from "../nutrients";
 import type {
   CardioSession,
   DailyNutritionSummary,
   DailyVitaminSummary,
+  EnergyBalance,
   Food,
   FoodLog,
   MacroTotals,
@@ -440,4 +442,66 @@ export function estimateSteps(
       };
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Energy (calorie burn / caloric balance)
+// ---------------------------------------------------------------------------
+
+/**
+ * Most recent logged body weight (lb) on or before `onDate` — any earlier date
+ * counts, so a day with no weigh-in still uses the last known weight. Null when
+ * no weight has ever been logged up to that date.
+ */
+export function getLatestWeightLb(onDate: string): number | null {
+  const row = db
+    .prepare("SELECT weight FROM weight_logs WHERE date <= ? ORDER BY date DESC LIMIT 1")
+    .get(onDate) as { weight: number } | undefined;
+  return row ? row.weight : null;
+}
+
+/**
+ * Full caloric balance for a day: baseline (TDEE from the body profile) + logged
+ * exercise burn (cardio + strength estimates) vs. nutrition intake. `net` and
+ * `status` are null until the profile has enough data (age, height, and a known
+ * body weight); the burn/intake fields are always populated.
+ */
+export function getEnergyBalance(date: string): EnergyBalance {
+  const profile = getSettings().profile;
+  const weightLb = getLatestWeightLb(date);
+  const intakeCalories = getNutritionSummary(date).totals.calories;
+
+  const bmr = bmrMifflin({
+    weightLb,
+    heightCm: profile.heightCm,
+    age: profile.age,
+    sex: profile.sex,
+  });
+  const tdeeValue = tdee(bmr, profile.activityLevel);
+
+  const day = getWorkoutDaySummary(date);
+  let exerciseBurn = 0;
+  for (const c of day.cardio) exerciseBurn += cardioBurn(c, weightLb);
+  for (const s of day.sessions) exerciseBurn += strengthBurn({ setCount: s.setCount, weightLb });
+
+  const hasProfile = !!(profile.age && profile.heightCm && weightLb);
+  const totalBurn = (tdeeValue ?? 0) + exerciseBurn;
+  const net = hasProfile ? intakeCalories - totalBurn : null;
+  const status =
+    net == null ? null : net < -50 ? "deficit" : net > 50 ? "surplus" : "even";
+
+  return {
+    date,
+    hasProfile,
+    weightLb,
+    bmr,
+    tdee: tdeeValue,
+    activityLevel: profile.activityLevel,
+    intakeCalories,
+    baselineBurn: tdeeValue,
+    exerciseBurn,
+    totalBurn,
+    net,
+    status,
+  };
 }

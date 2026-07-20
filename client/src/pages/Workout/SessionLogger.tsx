@@ -198,7 +198,7 @@ export function SessionLogger(props: {
               {planDay.exercises.map((pe) => (
                 <span key={pe.id} className="chip" title={pe.notes}>
                   {pe.exerciseName}: {pe.sets}×{pe.reps}
-                  {pe.targetWeight != null ? ` @${pe.targetWeight}` : ""}
+                  {pe.targetWeight != null ? ` @${pe.targetWeight} lb` : ""}
                 </span>
               ))}
             </div>
@@ -215,7 +215,7 @@ export function SessionLogger(props: {
                   <th>Exercise</th>
                   <th>Set</th>
                   <th>Reps</th>
-                  <th>Weight</th>
+                  <th>Weight (lb)</th>
                   <th>RPE</th>
                   <th />
                 </tr>
@@ -269,7 +269,7 @@ export function SessionLogger(props: {
               className="input"
               style={{ width: 84 }}
               type="number"
-              placeholder="Weight"
+              placeholder="Weight (lb)"
               value={weight}
               onChange={(e) => setWeight(e.target.value)}
             />

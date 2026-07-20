@@ -38,6 +38,34 @@ export interface Settings {
 }
 
 // ---------------------------------------------------------------------------
+// Energy (calorie burn / caloric balance)
+// ---------------------------------------------------------------------------
+
+/**
+ * A day's caloric balance. Burn splits into a baseline (TDEE from the body
+ * profile) and logged exercise (cardio + strength estimates). `net` is
+ * intake − total burn (positive = surplus); it and `status` are null until the
+ * profile has enough data (age, height, and a known body weight).
+ */
+export interface EnergyBalance {
+  date: string;
+  /** true only when age, heightCm, and a known body weight are all present */
+  hasProfile: boolean;
+  weightLb: number | null;
+  bmr: number | null;
+  tdee: number | null;
+  activityLevel: UserProfile["activityLevel"];
+  intakeCalories: number;
+  /** baseline (resting + activity) burn = TDEE, or null without a profile */
+  baselineBurn: number | null;
+  exerciseBurn: number;
+  totalBurn: number;
+  /** intake − totalBurn; null when !hasProfile */
+  net: number | null;
+  status: "deficit" | "surplus" | "even" | null;
+}
+
+// ---------------------------------------------------------------------------
 // Workout
 // ---------------------------------------------------------------------------
 

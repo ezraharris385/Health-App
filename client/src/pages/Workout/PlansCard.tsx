@@ -264,7 +264,7 @@ function DayView(props: {
               <th>#</th>
               <th>Exercise</th>
               <th>Sets × reps</th>
-              <th>Target</th>
+              <th>Target (lb)</th>
               <th>Rest</th>
               <th />
             </tr>
@@ -326,7 +326,7 @@ function DayView(props: {
         </select>
         <input className="input" style={{ width: 58 }} type="number" title="Sets" value={sets} onChange={(e) => setSets(e.target.value)} />
         <input className="input" style={{ width: 66 }} title="Reps (e.g. 8-12)" value={reps} onChange={(e) => setReps(e.target.value)} />
-        <input className="input" style={{ width: 70 }} type="number" placeholder="wt" title="Target weight" value={target} onChange={(e) => setTarget(e.target.value)} />
+        <input className="input" style={{ width: 70 }} type="number" placeholder="lb" title="Target weight (lb)" value={target} onChange={(e) => setTarget(e.target.value)} />
         <input className="input" style={{ width: 70 }} type="number" placeholder="rest s" title="Rest seconds" value={rest} onChange={(e) => setRest(e.target.value)} />
         <button
           className="btn small"

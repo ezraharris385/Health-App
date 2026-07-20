@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { CardioSession, CardioType } from "@shared/types";
 import { todayStr } from "../../api/http";
 import { cardioTotalSteps, workoutApi } from "../../api/workout";
+import { kmFromMi, miFromKm } from "../../units";
 
 const TYPES: CardioType[] = ["run", "jog", "walk", "interval"];
 
@@ -34,7 +35,8 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
     setEditingId(c.id);
     setDate(c.date);
     setType(c.type);
-    setDistance(String(c.distanceKm));
+    // Stored canonical km -> shown/edited in miles.
+    setDistance(String(Math.round(miFromKm(c.distanceKm) * 100) / 100));
     setDuration(String(c.durationMinutes));
     setIntensity(String(c.intensity));
     setStepsOverride(c.steps === null ? "" : String(c.steps));
@@ -48,14 +50,15 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
       const input = {
         date,
         type,
-        distanceKm: Number(distance),
+        // UI enters miles; convert to canonical km at the edge before sending.
+        distanceKm: kmFromMi(Number(distance)),
         durationMinutes: Number(duration),
         intensity: Number(intensity),
         steps: stepsOverride === "" ? null : Number(stepsOverride),
         report,
       };
       if (!Number.isFinite(input.distanceKm) || distance === "") {
-        throw new Error("Distance (km) is required");
+        throw new Error("Distance (mi) is required");
       }
       if (!Number.isFinite(input.durationMinutes) || duration === "") {
         throw new Error("Duration (min) is required");
@@ -117,7 +120,7 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
             </select>
           </label>
           <label className="field" style={{ width: 96 }}>
-            Distance (km)
+            Distance (mi)
             <input className="input" type="number" step="0.1" value={distance} onChange={(e) => setDistance(e.target.value)} />
           </label>
           <label className="field" style={{ width: 96 }}>
@@ -173,7 +176,7 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
             <tr>
               <th>Date</th>
               <th>Type</th>
-              <th>km</th>
+              <th>mi</th>
               <th>min</th>
               <th>Int.</th>
               <th>Steps</th>
@@ -186,7 +189,7 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
               <tr key={c.id}>
                 <td>{c.date}</td>
                 <td>{c.type}</td>
-                <td>{Math.round(c.distanceKm * 100) / 100}</td>
+                <td>{miFromKm(c.distanceKm).toFixed(1)}</td>
                 <td>{Math.round(c.durationMinutes)}</td>
                 <td>{c.intensity}</td>
                 <td title={c.steps !== null ? "Manually entered" : "Estimated from type + distance"}>

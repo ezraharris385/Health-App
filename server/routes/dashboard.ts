@@ -17,6 +17,7 @@ import {
 } from "../../shared/data/stores/dashboard";
 import { todayStr } from "../db";
 import { computeDailyScore, getScoreHistory } from "../score";
+import { getEnergyBalance } from "../summaries";
 
 export * from "../../shared/data/stores/dashboard";
 
@@ -47,4 +48,9 @@ dashboardRouter.get("/history", (req, res) => {
 // GET /api/dashboard/overview — today's cross-segment key numbers
 dashboardRouter.get("/overview", (_req, res) => {
   respond(res, () => buildOverview(todayStr()));
+});
+
+// GET /api/dashboard/energy?date=YYYY-MM-DD (defaults to today) — caloric balance
+dashboardRouter.get("/energy", (req, res) => {
+  respond(res, () => getEnergyBalance(parseScoreDate(req.query.date)));
 });

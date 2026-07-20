@@ -130,7 +130,7 @@ export default function WorkoutPage() {
         <AgentChat
           agent="workout"
           title="Workout Coach"
-          placeholder="Ask for a plan, log your sets ('bench 3×8 at 80kg'), or log a whole workout in one message."
+          placeholder="Ask for a plan, log your sets ('bench 3×8 at 185 lb'), or log a whole workout in one message."
           onReply={reload}
         />
       </div>

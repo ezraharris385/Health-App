@@ -57,7 +57,9 @@ export function computeDailyScore(date: string): DailyScore {
     )}), protein ${Math.round(n.totals.proteinG)}g/${goals.proteinGoalG}g (score ${Math.round(proteinScore)}).`;
   }
   const waterScore = Math.min(100, (n.waterMl / goals.waterGoalMl) * 100);
-  breakdown.water = `Water ${Math.round(n.waterMl)}ml/${goals.waterGoalMl}ml.`;
+  // Imperial display: convert stored ml → fl oz (1 fl oz = 29.5735 ml).
+  const flOz = (ml: number) => Math.round(ml / 29.5735);
+  breakdown.water = `Water ${flOz(n.waterMl)}/${flOz(goals.waterGoalMl)} fl oz.`;
   const nutrition = 0.7 * food + 0.3 * waterScore;
 
   // --- Sleep: duration vs target; 100 at >= target, linear down to 0 at 50% target.

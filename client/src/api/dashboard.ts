@@ -1,5 +1,5 @@
 import { http } from "./http";
-import type { DailyScore, ScoreHistory } from "@shared/types";
+import type { DailyScore, EnergyBalance, ScoreHistory } from "@shared/types";
 
 /** Mirror of DashboardOverview in server/routes/dashboard.ts — keep in sync. */
 export interface DashboardOverview {
@@ -57,4 +57,6 @@ export const dashboardApi = {
     http.get<DailyScore>(`/api/dashboard/score${date ? `?date=${date}` : ""}`),
   history: (days = 30) => http.get<ScoreHistory>(`/api/dashboard/history?days=${days}`),
   overview: () => http.get<DashboardOverview>("/api/dashboard/overview"),
+  energy: (date?: string) =>
+    http.get<EnergyBalance>(`/api/dashboard/energy${date ? `?date=${date}` : ""}`),
 };

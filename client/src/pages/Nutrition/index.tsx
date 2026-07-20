@@ -4,9 +4,10 @@
  * calorie/macro/water history charts, and the nutrition agent chat.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DailyNutritionSummary } from "@shared/types";
+import type { DailyNutritionSummary, EnergyBalance } from "@shared/types";
 import { AgentChat } from "../../components/AgentChat";
 import { todayStr } from "../../api/http";
+import { dashboardApi } from "../../api/dashboard";
 import {
   nutritionApi,
   type MacroHistoryResponse,
@@ -14,7 +15,9 @@ import {
   type WaterSummary,
   type WeightHistoryResponse,
 } from "../../api/nutrition";
+import { FLOZ, flozFromMl } from "../../units";
 import { ChartCard, HistoryBars, Legend, Meter, SERIES, StatTile } from "../../viz/ChartKit";
+import { EnergyCard } from "./EnergyCard";
 import { MealLogCard } from "./MealLogCard";
 import { WaterCard } from "./WaterCard";
 import { WeightCard } from "./WeightCard";
@@ -27,6 +30,7 @@ export default function NutritionPage() {
   const [water, setWater] = useState<WaterSummary | null>(null);
   const [waterHistory, setWaterHistory] = useState<WaterHistoryResponse | null>(null);
   const [weight, setWeight] = useState<WeightHistoryResponse | null>(null);
+  const [energy, setEnergy] = useState<EnergyBalance | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const dateRef = useRef(date);
@@ -40,14 +44,16 @@ export default function NutritionPage() {
       nutritionApi.water(date),
       nutritionApi.waterHistory(30),
       nutritionApi.weight(90),
+      dashboardApi.energy(date),
     ])
-      .then(([s, h, w, wh, wt]) => {
+      .then(([s, h, w, wh, wt, en]) => {
         if (dateRef.current !== date) return;
         setSummary(s);
         setHistory(h);
         setWater(w);
         setWaterHistory(wh);
         setWeight(wt);
+        setEnergy(en);
         setError(null);
       })
       .catch((e) =>
@@ -101,7 +107,7 @@ export default function NutritionPage() {
   }));
   const waterData = (waterHistory?.days ?? []).map((d) => ({
     day: fmtDay(d.date),
-    totalMl: d.totalMl,
+    totalFloz: r1(flozFromMl(d.totalMl)),
   }));
 
   return (
@@ -143,6 +149,10 @@ export default function NutritionPage() {
             />
           );
         })}
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <EnergyCard energy={energy} date={date} />
       </div>
 
       <div className="grid cols-2" style={{ marginTop: 14 }}>
@@ -223,10 +233,12 @@ export default function NutritionPage() {
           <HistoryBars
             data={waterData}
             x="day"
-            bars={[{ key: "totalMl", name: "Water", color: "var(--series-5)" }]}
-            unit="ml"
+            bars={[{ key: "totalFloz", name: "Water", color: "var(--series-5)" }]}
+            unit={FLOZ}
             referenceY={
-              waterHistory ? { value: waterHistory.goalMl, label: "goal" } : undefined
+              waterHistory
+                ? { value: r1(flozFromMl(waterHistory.goalMl)), label: "goal" }
+                : undefined
             }
           />
         </ChartCard>

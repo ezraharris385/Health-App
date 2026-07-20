@@ -1,4 +1,5 @@
 import { DOW_SHORT, type WeekSchedule } from "../../api/workout";
+import { miFromKm } from "../../units";
 
 /** This week at a glance: scheduled plan days vs what actually got logged. */
 export function WeekScheduleCard(props: { week: WeekSchedule | null }) {
@@ -71,7 +72,7 @@ export function WeekScheduleCard(props: { week: WeekSchedule | null }) {
                     ))}
                     {d.cardio.map((c) => (
                       <span key={`c${c.id}`} style={{ fontSize: 11, color: "var(--series-5)" }}>
-                        ✓ {c.type} {Math.round(c.distanceKm * 10) / 10}km
+                        ✓ {c.type} {miFromKm(c.distanceKm).toFixed(1)}mi
                       </span>
                     ))}
                     {d.scheduled.length === 0 && !trained && (

@@ -1,16 +1,46 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
-import type { ScoreHistory } from "@shared/types";
+import type { EnergyBalance, ScoreHistory } from "@shared/types";
 import { dashboardApi, type DashboardOverview } from "../../api/dashboard";
 import { AgentChat } from "../../components/AgentChat";
 import { ChartCard, Meter, StatTile, TrendLine } from "../../viz/ChartKit";
+import { LB, fmtFloz, fmtMiles, flozFromMl } from "../../units";
 
 function scoreColor(score: number): string {
   if (score >= 80) return "var(--status-good)";
   if (score >= 60) return "var(--status-warning)";
   if (score >= 40) return "var(--status-serious)";
   return "var(--status-critical)";
+}
+
+/** Signed "+120 kcal" / "−420 kcal" for the caloric-balance net. */
+function fmtKcal(n: number): string {
+  const r = Math.round(n);
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)} kcal`;
+}
+
+const ACTIVITY_LABEL: Record<string, string> = {
+  sedentary: "sedentary",
+  light: "lightly active",
+  moderate: "moderately active",
+  active: "active",
+  very_active: "very active",
+};
+
+/**
+ * Caloric net is coloured by deviation only: a deficit and a surplus share one
+ * neutral brand accent (they read as "off maintenance"), never good-vs-bad —
+ * whether a deficit is desirable depends on the user's cut/bulk goal. The same
+ * mapping drives Nutrition/EnergyCard so both energy surfaces agree instead of
+ * signalling the same day oppositely.
+ */
+function energyStatusColor(status: EnergyBalance["status"]): string {
+  return status === "surplus" || status === "deficit" ? "var(--accent)" : "var(--ink-2)";
+}
+
+function energyStatusWord(status: EnergyBalance["status"]): string {
+  return status === "surplus" ? "surplus" : status === "deficit" ? "deficit" : "maintaining";
 }
 
 function SegmentCard(props: { title: string; to: string; color: string; children: ReactNode }) {
@@ -44,13 +74,15 @@ function SegmentCard(props: { title: string; to: string; color: string; children
 export default function DashboardPage() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [history, setHistory] = useState<ScoreHistory | null>(null);
+  const [energy, setEnergy] = useState<EnergyBalance | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
-    Promise.all([dashboardApi.overview(), dashboardApi.history(30)])
-      .then(([o, h]) => {
+    Promise.all([dashboardApi.overview(), dashboardApi.history(30), dashboardApi.energy()])
+      .then(([o, h, e]) => {
         setOverview(o);
         setHistory(h);
+        setEnergy(e);
         setError(null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load dashboard"));
@@ -69,7 +101,7 @@ export default function DashboardPage() {
       </div>
     );
   }
-  if (!overview || !history) {
+  if (!overview || !history || !energy) {
     return (
       <div>
         <h1 className="page-title">Dashboard</h1>
@@ -131,6 +163,71 @@ export default function DashboardPage() {
         <StatTile label="Mobility · 13%" value={score.mobility} delta={score.breakdown.mobility} />
       </div>
 
+      {/* Energy balance: intake vs baseline (TDEE) + exercise burn */}
+      <h2 className="section-title">Energy balance</h2>
+      {energy.hasProfile ? (
+        <>
+          <div
+            className="grid"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
+          >
+            <div className="card stat-tile">
+              <span className="label">Net today</span>
+              <span
+                className="value"
+                style={{ fontSize: 38, color: energyStatusColor(energy.status) }}
+              >
+                {fmtKcal(energy.net ?? 0)}
+              </span>
+              <span className="delta" style={{ color: energyStatusColor(energy.status) }}>
+                {energyStatusWord(energy.status)}
+              </span>
+            </div>
+            <StatTile label="Intake" value={`${Math.round(energy.intakeCalories)} kcal`} delta="eaten" />
+            <StatTile
+              label={`Baseline · ${
+                energy.activityLevel ? ACTIVITY_LABEL[energy.activityLevel] ?? energy.activityLevel : "TDEE"
+              }`}
+              value={`${Math.round(energy.baselineBurn ?? 0)} kcal`}
+              delta={energy.bmr != null ? `BMR ${Math.round(energy.bmr)}` : undefined}
+            />
+            <StatTile
+              label="Exercise burn"
+              value={`${Math.round(energy.exerciseBurn)} kcal`}
+              delta="logged workouts"
+            />
+            <StatTile
+              label="Total out"
+              value={`${Math.round(energy.totalBurn)} kcal`}
+              delta="baseline + exercise"
+            />
+          </div>
+          <p className="page-sub" style={{ marginTop: 8 }}>
+            Net = intake − (baseline TDEE + exercise). Negative is a deficit. Exercise and strength
+            burn are estimates.
+          </p>
+        </>
+      ) : (
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+          <div className="card" style={{ gridColumn: "1 / -1" }}>
+            <p style={{ margin: 0, color: "var(--ink-2)", fontSize: 14 }}>
+              Add your age, height, weight &amp; activity in{" "}
+              <Link to="/settings" style={{ color: "var(--series-1)" }}>
+                Settings
+              </Link>{" "}
+              to see your baseline burn (TDEE) and caloric net. Intake and exercise burn are shown
+              below in the meantime.
+            </p>
+          </div>
+          <StatTile label="Intake" value={`${Math.round(energy.intakeCalories)} kcal`} delta="eaten today" />
+          <StatTile
+            label="Exercise burn"
+            value={`${Math.round(energy.exerciseBurn)} kcal`}
+            delta="logged workouts"
+          />
+        </div>
+      )}
+
       {/* Coordinator chat + score trend */}
       <div className="grid cols-2" style={{ marginTop: 14 }}>
         <AgentChat
@@ -187,9 +284,9 @@ export default function DashboardPage() {
             {w.sessionCount > 0 || w.cardioCount > 0
               ? `${w.sessionCount} lifting session${w.sessionCount === 1 ? "" : "s"} (${
                   w.setCount
-                } sets, ${w.completedSessionCount} completed) · ${w.cardioCount} cardio (${
-                  w.cardioDistanceKm
-                } km)`
+                } sets, ${w.completedSessionCount} completed) · ${w.cardioCount} cardio (${fmtMiles(
+                  w.cardioDistanceKm,
+                )})`
               : "Nothing logged today."}
           </span>
         </SegmentCard>
@@ -213,7 +310,7 @@ export default function DashboardPage() {
           <Meter
             label="Water"
             percent={wa.goalMl > 0 ? (wa.totalMl / wa.goalMl) * 100 : 0}
-            detail={`${wa.totalMl} / ${wa.goalMl} ml`}
+            detail={`${Math.round(flozFromMl(wa.totalMl))} / ${fmtFloz(wa.goalMl)}`}
             color="var(--series-5)"
           />
           <span style={{ fontSize: 13, color: "var(--ink-2)" }}>
@@ -222,8 +319,8 @@ export default function DashboardPage() {
               : "No food logged today"}
             {" · "}
             {wt.latest != null
-              ? `weight ${wt.latest} ${wt.unit} (${wt.date})${
-                  wt.goal != null ? `, goal ${wt.goal} ${wt.unit}` : ""
+              ? `weight ${wt.latest} ${LB} (${wt.date})${
+                  wt.goal != null ? `, goal ${wt.goal} ${LB}` : ""
                 }`
               : "no weight logged yet"}
           </span>

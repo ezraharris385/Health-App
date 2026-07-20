@@ -3,6 +3,7 @@ import type { CardioSession } from "@shared/types";
 import { AgentChat } from "../../components/AgentChat";
 import { StatTile } from "../../viz/ChartKit";
 import { cardioTotalSteps, workoutApi, type WeekSchedule } from "../../api/workout";
+import { fmtMiles } from "../../units";
 import { CardioCard } from "./CardioCard";
 import { CardioCharts } from "./CardioCharts";
 
@@ -51,10 +52,7 @@ export default function CardioPage() {
 
       <div className="grid cols-3">
         <StatTile label="Cardio sessions this week" value={weekStats.count} />
-        <StatTile
-          label="Distance this week"
-          value={`${Math.round(weekStats.distanceKm * 10) / 10} km`}
-        />
+        <StatTile label="Distance this week" value={fmtMiles(weekStats.distanceKm, 1)} />
         <StatTile
           label="Steps this week"
           value={weekStats.steps.toLocaleString()}

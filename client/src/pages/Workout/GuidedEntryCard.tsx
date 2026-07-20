@@ -23,7 +23,7 @@ interface EntryRow {
 }
 
 function templateHint(t: NonNullable<EntryRow["template"]>): string {
-  return `${t.sets}×${t.reps}${t.targetWeight != null ? ` @ ${t.targetWeight}kg` : ""}`;
+  return `${t.sets}×${t.reps}${t.targetWeight != null ? ` @ ${t.targetWeight} lb` : ""}`;
 }
 
 const rowFilled = (r: EntryRow) => r.reps.trim() !== "" || r.timeMin.trim() !== "";
@@ -243,8 +243,8 @@ export function GuidedEntryCard(props: {
                     className="input"
                     style={{ width: 76 }}
                     type="number"
-                    title="Weight used"
-                    placeholder={row.template?.targetWeight != null ? String(row.template.targetWeight) : "wt"}
+                    title="Weight used (lb)"
+                    placeholder={row.template?.targetWeight != null ? String(row.template.targetWeight) : "lb"}
                     value={row.weight}
                     onChange={(e) => updateRow(i, { weight: e.target.value })}
                   />

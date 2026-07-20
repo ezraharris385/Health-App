@@ -11,6 +11,7 @@ import { db, isValidDateStr, todayStr } from "../../data/db";
 import { getSettings } from "../../data/settingsStore";
 import { computeDailyScore, getScoreHistory } from "../../data/score";
 import {
+  getEnergyBalance,
   getMobilityDaySummary,
   getNutritionSummary,
   getSleepForDate,
@@ -179,6 +180,34 @@ const tools: ToolDef[] = [
     },
   },
   {
+    name: "get_energy_balance",
+    description:
+      "Get a day's caloric balance ('energy'): body profile (age, height, weight, activity level), the Mifflin-St Jeor BMR and TDEE baseline, calorie intake, estimated exercise burn (cardio + strength), total burn, and net = intake − total burn (negative = deficit). status is deficit/surplus/even, or null until age, height, and a logged weight all exist (hasProfile). Defaults to today. Read-only — profile edits happen in Settings.",
+    input_schema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD; omit for today" },
+      },
+    },
+    run: (input: { date?: string }) => {
+      const e = getEnergyBalance(resolveDate(input?.date));
+      return JSON.stringify({
+        date: e.date,
+        hasProfile: e.hasProfile,
+        weightLb: e.weightLb,
+        activityLevel: e.activityLevel,
+        bmr: e.bmr == null ? null : Math.round(e.bmr),
+        tdee: e.tdee == null ? null : Math.round(e.tdee),
+        intakeCalories: Math.round(e.intakeCalories),
+        baselineBurn: e.baselineBurn == null ? null : Math.round(e.baselineBurn),
+        exerciseBurn: Math.round(e.exerciseBurn),
+        totalBurn: Math.round(e.totalBurn),
+        net: e.net == null ? null : Math.round(e.net),
+        status: e.status,
+      });
+    },
+  },
+  {
     name: "get_vitamin_summary",
     description:
       "Get a day's micronutrient coverage: percent of target per tracked nutrient with food vs supplement split, plus which supplements were taken and which are active. Defaults to today. Sort by percent yourself to find the biggest gaps.",
@@ -319,6 +348,7 @@ function buildContext(): string {
   const weightRow = db
     .prepare("SELECT date, weight FROM weight_logs ORDER BY date DESC LIMIT 1")
     .get() as { date: string; weight: number } | undefined;
+  const energy = getEnergyBalance(date);
 
   return JSON.stringify({
     today: date,
@@ -354,6 +384,15 @@ function buildContext(): string {
       scheduled: w.scheduledPlanDays.map((d) => `${d.planName}: ${d.name}`),
     },
     vitamins: { avgCoveragePercent: avgCoverage, lowest: lowestNutrients },
+    energy: {
+      hasProfile: energy.hasProfile,
+      intakeCalories: Math.round(energy.intakeCalories),
+      baselineTdee: energy.tdee == null ? null : Math.round(energy.tdee),
+      exerciseBurn: Math.round(energy.exerciseBurn),
+      totalBurn: Math.round(energy.totalBurn),
+      net: energy.net == null ? null : Math.round(energy.net),
+      status: energy.status,
+    },
     latestWeight: weightRow
       ? { value: weightRow.weight, unit: goals.weightUnit, date: weightRow.date }
       : null,
@@ -376,6 +415,7 @@ Your job:
 1. Daily combined analysis. Merge all five segments into one clear picture of the day. Lead with the daily score and what is driving it, then what to fix first.
 2. Explain scores exactly. Use get_daily_score's breakdown — the total is a weighted mean: workout 22%, nutrition 28% (includes water), sleep 22%, vitamins 15%, mobility 13%. Quote the real numbers; never invent them.
 3. Per-segment recommendations with concrete figures ("drink 900 ml more water", "dinner around 650 kcal with 45 g protein", "you're 40% short on magnesium").
+   Energy / caloric balance: you also see a caloric-balance picture via get_energy_balance — baseline burn is the TDEE from the body profile (Mifflin-St Jeor BMR × activity multiplier), plus estimated exercise burn from logged cardio and lifting, all compared against calorie intake. Net = intake − (baseline TDEE + exercise); negative is a deficit, positive a surplus. It needs age, height, and a logged body weight to compute a baseline (hasProfile) — if any are missing, tell the user to add them in Settings and work from intake + exercise burn only. Exercise burn and strength burn are rough estimates; say so. Never invent a net when hasProfile is false.
 4. Cross-segment coordination. For any request spanning segments — a meal that fits the remaining calories AND fills today's micronutrient gaps, adjusting food and training after a heavy meal, fixing bedtime to improve recovery — use the consult_agent tool to task the relevant specialists. Give each specialist a self-contained brief including every constraint you already know (remaining macros, deficient nutrients, tonight's schedule); consult several specialists, in parallel when their tasks are independent. The specialists have full live read access to their segment's data, but during a consultation they only ADVISE — they will not record anything unless your brief explicitly relays a direct user instruction (e.g. "the user asked to log 2 eggs at lunch"). Never turn your own recommendation into a write: recommending a supplement, meal, or plan must NEVER cause it to be created or marked taken/eaten/done — present the plan and let the user decide. If a specialist reports it modified data, tell the user exactly what changed. Then SYNTHESIZE the replies into one coherent, non-contradictory plan in your own words — never paste raw specialist output.
 
 Your own tools are strictly read-only. When something must change, either route the action through a consulted specialist or give the user the exact steps.

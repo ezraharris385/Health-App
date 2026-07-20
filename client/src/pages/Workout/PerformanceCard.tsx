@@ -100,7 +100,7 @@ export function PerformanceCard(props: {
             x="date"
             height={150}
             series={[
-              { key: "best", name: "Best set weight", color: SERIES[1] },
+              { key: "best", name: "Best set weight (lb)", color: SERIES[1] },
               { key: "est1RM", name: "Est. 1RM", color: SERIES[6] },
               ...(hasTimed ? [{ key: "hold", name: "Best hold (s)", color: SERIES[3] }] : []),
             ]}
@@ -108,7 +108,7 @@ export function PerformanceCard(props: {
           <Legend
             items={[
               { name: "Volume (reps × weight)", color: SERIES[0] },
-              { name: "Best set weight", color: SERIES[1] },
+              { name: "Best set weight (lb)", color: SERIES[1] },
               { name: "Est. 1RM (Epley)", color: SERIES[6] },
               ...(hasTimed ? [{ name: "Best hold (s)", color: SERIES[3] }] : []),
             ]}
