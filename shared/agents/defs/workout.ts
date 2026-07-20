@@ -25,7 +25,7 @@ import {
   listPlans,
   listSessions,
   logFullSession,
-  resolveExerciseId,
+  resolveExistingExerciseId,
   updateCardio,
   updateExercise,
   updatePlan,
@@ -60,7 +60,7 @@ const tools: ToolDef[] = [
   {
     name: "save_exercise",
     description:
-      "Create a new exercise (omit id) or update an existing one (pass id). Always fill `instructions` with concise form cues (setup, execution, common mistakes) — the user reads them from the library and you use them to coach form.",
+      "Create a new exercise (omit id) or update an existing one (pass id). Always fill `instructions` with concise form cues (setup, execution, common mistakes). Pick the right `trackingType` for how the movement is measured: 'weight_reps' (barbell/dumbbell lifts), 'reps' (bodyweight reps like push-ups), 'time' (planks/holds/wall-sits), 'distance' (loaded carries, rowing meters), or 'count' (rounds, throws). Fill `intensityRec` with concrete intensity guidance (e.g. 'RPE 8, ~2 in reserve' or '~75% 1RM') and `goalRec` with a target (e.g. '3×8-12 for hypertrophy', '3×45s holds').",
     input_schema: {
       type: "object",
       properties: {
@@ -69,6 +69,19 @@ const tools: ToolDef[] = [
         muscleGroups: { type: "string", description: "Comma-separated, e.g. 'chest, triceps'" },
         equipment: { type: "string", description: "e.g. 'barbell', 'dumbbells', 'bodyweight'" },
         instructions: { type: "string", description: "Form cues: setup, execution, mistakes" },
+        trackingType: {
+          type: "string",
+          enum: ["weight_reps", "reps", "time", "distance", "count"],
+          description: "How a set is measured (default 'weight_reps')",
+        },
+        intensityRec: {
+          type: "string",
+          description: "Recommended intensity, e.g. 'RPE 8, ~2 reps in reserve' or '~75% 1RM'",
+        },
+        goalRec: {
+          type: "string",
+          description: "Recommended goal/target, e.g. '3×8-12 for hypertrophy' or '3×45s holds'",
+        },
         notes: { type: "string" },
       },
     },
@@ -78,6 +91,9 @@ const tools: ToolDef[] = [
       muscleGroups?: string;
       equipment?: string;
       instructions?: string;
+      trackingType?: string;
+      intensityRec?: string;
+      goalRec?: string;
       notes?: string;
     }) => {
       if (input.id !== undefined && input.id !== null) {
@@ -145,10 +161,20 @@ const tools: ToolDef[] = [
                     muscleGroups: { type: "string" },
                     equipment: { type: "string" },
                     instructions: { type: "string", description: "Form cues if creating a new exercise" },
+                    trackingType: {
+                      type: "string",
+                      enum: ["weight_reps", "reps", "time", "distance", "count"],
+                      description: "Tracking type if creating a new exercise (default 'weight_reps')",
+                    },
+                    intensityRec: { type: "string", description: "Intensity rec if creating a new exercise" },
+                    goalRec: { type: "string", description: "Goal rec if creating a new exercise" },
                     sets: { type: "number", description: "Working sets (default 3)" },
                     reps: { type: "string", description: "Rep target, e.g. '8-12' or '5'" },
                     targetWeight: { type: "number", description: "Target working weight" },
                     restSeconds: { type: "number", description: "Rest between sets in seconds" },
+                    targetSeconds: { type: "number", description: "Target hold/work seconds for a timed exercise" },
+                    targetDistanceM: { type: "number", description: "Target distance in meters for a distance exercise" },
+                    targetCount: { type: "number", description: "Target count for a count-tracked exercise" },
                     notes: { type: "string" },
                   },
                 },
@@ -220,10 +246,20 @@ const tools: ToolDef[] = [
             type: "object",
             properties: {
               ...exerciseRefProps,
+              trackingType: {
+                type: "string",
+                enum: ["weight_reps", "reps", "time", "distance", "count"],
+                description: "Tracking type if creating a new exercise",
+              },
+              intensityRec: { type: "string" },
+              goalRec: { type: "string" },
               sets: { type: "number" },
               reps: { type: "string" },
               targetWeight: { type: "number" },
               restSeconds: { type: "number" },
+              targetSeconds: { type: "number", description: "Target hold/work seconds (timed)" },
+              targetDistanceM: { type: "number", description: "Target distance in meters" },
+              targetCount: { type: "number", description: "Target count (count-tracked)" },
               notes: { type: "string" },
             },
           },
@@ -285,7 +321,7 @@ const tools: ToolDef[] = [
   {
     name: "log_session",
     description:
-      "Open a LIVE lifting session for mid-workout, set-by-set logging (optionally seeding its first sets); keep appending with add_sets as the workout happens. For a workout that is already FINISHED, use log_full_session instead. Pass planDayId to start from a scheduled plan day (name auto-fills). Each set needs exerciseId or exerciseName plus reps; weight, rpe (1-10), and durationSeconds (seconds of timed work, e.g. planks) are optional. Set completed=true only if the session is already over. Returns the full session with sets.",
+      "Open a LIVE lifting session for mid-workout, set-by-set logging (optionally seeding its first sets); keep appending with add_sets as the workout happens. For a workout that is already FINISHED, use log_full_session instead. Pass planDayId to start from a scheduled plan day (name auto-fills). Each set needs exerciseId or exerciseName plus at least one measured field (reps, weight, durationSeconds, distanceM, or count); rpe (1-10) is optional intensity. Set completed=true only if the session is already over. Returns the full session with sets.",
     input_schema: {
       type: "object",
       properties: {
@@ -300,16 +336,17 @@ const tools: ToolDef[] = [
             type: "object",
             properties: {
               ...exerciseRefProps,
-              reps: { type: "number" },
+              reps: { type: "number", description: "Reps (omit for time/distance/count-only work)" },
               weight: { type: "number" },
               rpe: { type: "number", description: "1-10 rate of perceived exertion" },
               durationSeconds: {
                 type: "number",
                 description: "Seconds of timed work for the set (1-21600)",
               },
+              distanceM: { type: "number", description: "Meters covered (distance-tracked work), >= 0" },
+              count: { type: "number", description: "Plain count, e.g. rounds/throws (integer >= 0)" },
               notes: { type: "string" },
             },
-            required: ["reps"],
           },
         },
       },
@@ -336,7 +373,7 @@ const tools: ToolDef[] = [
   {
     name: "log_full_session",
     description:
-      "Log a COMPLETE workout in one call — typically what the user actually did against a plan-day template. Pass planDayId when they followed a scheduled day (name auto-fills). Include ONLY the exercises actually performed, each with its real sets count and per-set reps/weight/intensity (rpe 1-10)/durationSeconds for timed work; omit skipped template exercises entirely — extra non-template exercises are welcome. The session is recorded as already completed. Returns the full session with sets.",
+      "Log a COMPLETE workout in one call — typically what the user actually did against a plan-day template. Pass planDayId when they followed a scheduled day (name auto-fills). Include ONLY the exercises actually performed, each with its real sets count and per-set measurements: reps/weight/intensity (rpe 1-10) for lifts, durationSeconds for timed holds, distanceM for distance work, count for count-tracked work. Each set needs at least one measured field. Omit skipped template exercises entirely — extra non-template exercises are welcome. The session is recorded as already completed. Returns the full session with sets.",
     input_schema: {
       type: "object",
       properties: {
@@ -355,10 +392,15 @@ const tools: ToolDef[] = [
             type: "object",
             properties: {
               ...exerciseRefProps,
+              trackingType: {
+                type: "string",
+                enum: ["weight_reps", "reps", "time", "distance", "count"],
+                description: "Tracking type if creating a new exercise by name",
+              },
               sets: { type: "number", description: "Sets performed (1-20, default 1)" },
               reps: {
                 type: "number",
-                description: "Reps per set (0-1000; 0 only for time-only work with durationSeconds)",
+                description: "Reps per set (0-1000); omit for time/distance/count-only work",
               },
               weight: { type: "number", description: "Working weight (>= 0); omit for bodyweight" },
               rpe: { type: "number", description: "Intensity: 1-10 rate of perceived exertion" },
@@ -366,9 +408,10 @@ const tools: ToolDef[] = [
                 type: "number",
                 description: "Seconds of timed work per set (1-21600), e.g. 60 for a 1-minute plank",
               },
+              distanceM: { type: "number", description: "Meters covered per set (distance-tracked work), >= 0" },
+              count: { type: "number", description: "Plain count per set, e.g. rounds/throws (integer >= 0)" },
               notes: { type: "string" },
             },
-            required: ["reps"],
           },
         },
       },
@@ -379,7 +422,7 @@ const tools: ToolDef[] = [
   {
     name: "add_sets",
     description:
-      "Append sets to an existing session (e.g. mid-workout logging: 'bench 100kg for 8'). Each set needs exerciseId or exerciseName plus reps; weight/rpe/durationSeconds (seconds of timed work, e.g. planks) optional. Set numbers auto-increment per exercise.",
+      "Append sets to an existing session (e.g. mid-workout logging: 'bench 100kg for 8'). Each set needs exerciseId or exerciseName plus at least one measured field: reps, weight, durationSeconds (timed work), distanceM (distance work), or count (count-tracked work); rpe is optional intensity. Set numbers auto-increment per exercise.",
     input_schema: {
       type: "object",
       properties: {
@@ -390,16 +433,17 @@ const tools: ToolDef[] = [
             type: "object",
             properties: {
               ...exerciseRefProps,
-              reps: { type: "number" },
+              reps: { type: "number", description: "Reps (omit for time/distance/count-only work)" },
               weight: { type: "number" },
               rpe: { type: "number" },
               durationSeconds: {
                 type: "number",
                 description: "Seconds of timed work for the set (1-21600)",
               },
+              distanceM: { type: "number", description: "Meters covered (distance-tracked work), >= 0" },
+              count: { type: "number", description: "Plain count, e.g. rounds/throws (integer >= 0)" },
               notes: { type: "string" },
             },
-            required: ["reps"],
           },
         },
       },
@@ -432,16 +476,24 @@ const tools: ToolDef[] = [
   {
     name: "get_performance",
     description:
-      "Per-exercise performance history: for each training day, total volume (Σ reps × weight), best set, and Epley estimated 1RM. Use it to judge progressive overload and recommend next working weights. Reference the exercise by id or name.",
+      "Per-exercise performance history: for each training day, total volume (Σ reps × weight), best set, and Epley estimated 1RM. Use it to judge progressive overload and recommend next working weights. Reference the exercise by id or name — it must already exist; this read-only query never creates one (use list_exercises to find the right id/name).",
     input_schema: {
       type: "object",
       properties: {
         ...exerciseRefProps,
+        exerciseName: {
+          type: "string",
+          description:
+            "Exercise name — matched case-insensitively; must already exist (this read-only query never creates it)",
+        },
         days: { type: "number", description: "Look-back window in days (default 180)" },
       },
     },
     run: (input: { exerciseId?: number; exerciseName?: string; days?: number }) => {
-      const id = resolveExerciseId(input ?? {});
+      // Read-only: resolve to an EXISTING exercise only. Never create from a
+      // performance query, or a typo/novel name would pollute the library and
+      // return a misleading "no data" instead of "no such exercise".
+      const id = resolveExistingExerciseId(input ?? {});
       return JSON.stringify(getPerformance(id, input?.days ?? 180));
     },
   },
@@ -449,37 +501,52 @@ const tools: ToolDef[] = [
   {
     name: "log_cardio",
     description:
-      "Log a cardio session: type (run/jog/walk/interval), distanceKm, durationMinutes, intensity 1-10, optional free-text report of how it went, optional notes. Steps are auto-estimated from type and distance (split run vs walked); pass steps only when the user gives a real device count to hardcode as an override.",
+      "Log a cardio session of any type: run/jog/walk/interval (footfall), hiit, cycling, rowing, elliptical, or other. distanceKm and durationMinutes are BOTH optional (0 allowed) — a session just needs at least one of distance, duration, steps, stepsRun, or stepsWalked, so a steps-only day (e.g. 8000 steps walked, no distance) or a duration-only HIIT/cycling session both work. For type 'other' set activityLabel (e.g. 'stair climber'). Steps auto-estimate from distance for footfall types; pass stepsRun/stepsWalked to record explicit device counts, or steps for a manual total override. intensity is 1-10.",
     input_schema: {
       type: "object",
       properties: {
         date: { type: "string", description: "YYYY-MM-DD (default today)" },
-        type: { type: "string", enum: ["run", "jog", "walk", "interval"] },
-        distanceKm: { type: "number" },
-        durationMinutes: { type: "number" },
+        type: {
+          type: "string",
+          enum: ["run", "jog", "walk", "interval", "hiit", "cycling", "rowing", "elliptical", "other"],
+        },
+        activityLabel: {
+          type: "string",
+          description: "Free-text label for the activity, especially for type 'other'",
+        },
+        distanceKm: { type: "number", description: "Optional (0 allowed for non-distance activities)" },
+        durationMinutes: { type: "number", description: "Optional (0 allowed for steps-only entries)" },
         intensity: { type: "number", description: "1-10 (default 5)" },
-        steps: { type: "number", description: "Manual total-step override from a device; omit to auto-estimate" },
+        steps: { type: "number", description: "Manual total-step override; omit to auto-estimate/use run+walked" },
+        stepsRun: { type: "number", description: "Explicit run-step count (device); omit to auto-estimate" },
+        stepsWalked: { type: "number", description: "Explicit walked-step count (device); omit to auto-estimate" },
         report: { type: "string", description: "The user's report of how it went — always ask for one" },
         notes: { type: "string" },
       },
-      required: ["type", "distanceKm", "durationMinutes"],
+      required: ["type"],
     },
     run: (input: any) => JSON.stringify(createCardio(input)),
   },
   {
     name: "update_cardio",
     description:
-      "Update a cardio session by id — most commonly to attach or refine the user's post-run report (how it felt, pacing, aches), or to fix distance/duration/intensity. Pass steps as a number to hardcode a device count, or null to go back to auto-estimates. Steps re-estimate automatically when type/distance change.",
+      "Update a cardio session by id — most commonly to attach or refine the user's post-session report (how it felt, pacing, aches), or to fix type/activityLabel/distance/duration/intensity. Pass steps as a number to hardcode a manual total, or null to clear it. Pass stepsRun/stepsWalked to set explicit device counts (null clears back to auto). Estimated steps re-estimate automatically when type/distance change.",
     input_schema: {
       type: "object",
       properties: {
         id: { type: "number" },
         date: { type: "string" },
-        type: { type: "string", enum: ["run", "jog", "walk", "interval"] },
+        type: {
+          type: "string",
+          enum: ["run", "jog", "walk", "interval", "hiit", "cycling", "rowing", "elliptical", "other"],
+        },
+        activityLabel: { type: "string" },
         distanceKm: { type: "number" },
         durationMinutes: { type: "number" },
         intensity: { type: "number" },
         steps: { type: ["number", "null"] },
+        stepsRun: { type: ["number", "null"] },
+        stepsWalked: { type: ["number", "null"] },
         report: { type: "string" },
         notes: { type: "string" },
       },
@@ -489,10 +556,13 @@ const tools: ToolDef[] = [
       id: number;
       date?: string;
       type?: string;
+      activityLabel?: string;
       distanceKm?: number;
       durationMinutes?: number;
       intensity?: number;
       steps?: number | null;
+      stepsRun?: number | null;
+      stepsWalked?: number | null;
       report?: string;
       notes?: string;
     }) => JSON.stringify(updateCardio(Number(input.id), input)),
@@ -524,17 +594,18 @@ const tools: ToolDef[] = [
 export const workoutAgent: AgentDef = {
   name: "workout",
   title: "Workout Coach",
-  persona: `You are the Workout Coach — an expert strength & conditioning coach (think NSCA-CSCS level) inside the user's personal health app. You own everything training-related: the exercise library, weekly workout plans, lifting sessions with set-by-set logs, per-exercise performance history, and cardio (runs, jogs, walks, intervals).
+  persona: `You are the Workout Coach — an expert strength & conditioning coach (think NSCA-CSCS level) inside the user's personal health app. You own everything training-related: the exercise library, weekly workout plans, lifting sessions with set-by-set logs, per-exercise performance history, and cardio of every kind (runs, jogs, walks, intervals, HIIT, cycling, rowing, elliptical, and anything else).
 
 How you work:
 - Every turn you receive an auto-injected <context> snapshot of today's training data (schedule, sessions, cardio, active plans, last-7-days load) plus your saved memory notes about the user. Use both before asking questions the data already answers.
 - Read before you write: call list_exercises / list_plans / list_sessions / get_week_schedule to see current state before creating or editing anything. Never create duplicate exercises.
-- When the user asks for a program, build it in ONE create_full_plan call — plan, weekly days (dayOfWeek 0=Sunday..6=Saturday), and ordered exercises with sets, reps, target weight, and rest. Pick sensible defaults from their history via get_performance instead of guessing.
+- Every exercise carries a trackingType — pick the right one when you create it: 'weight_reps' (loaded lifts), 'reps' (bodyweight reps), 'time' (planks/holds), 'distance' (carries, rowing meters), or 'count' (rounds/throws). Also fill intensityRec (concrete: e.g. 'RPE 8, ~2 in reserve' or '~75% 1RM') and goalRec (a target, e.g. '3×8-12 for hypertrophy', '3×45s holds'). You recommend intensity and goals in TEXT — you have no charts or visuals to draw.
+- When the user asks for a program, build it in ONE create_full_plan call — plan, weekly days (dayOfWeek 0=Sunday..6=Saturday), and ordered exercises with sets, reps, target weight/rest, plus targetSeconds/targetDistanceM/targetCount for timed/distance/count work. Pick sensible defaults from their history via get_performance instead of guessing.
 - Always write form cues into each exercise's instructions field, and quote those instructions when explaining how to perform a movement (setup, execution, common mistakes).
-- When the user reports a FINISHED workout (especially one from a plan day), prefer log_full_session — one call records the whole completed session. First ask what they ACTUALLY did versus the template; never assume template sets/reps/weights were performed unless the user says so. Include only exercises actually done (skipped template exercises are simply omitted; extras are fine), each with real sets × reps, weight, intensity (rpe 1-10), and durationSeconds for timed work like planks. Keep log_session/add_sets for live set-by-set logging mid-workout.
-- After logging anything, confirm concretely what was recorded ("Logged Bench 3×8 @ 80kg, RPE 8"). Confirm before destructive changes (deleting plans/exercises); prefer archiving plans.
-- Cardio: log with type, distance, duration, and intensity; steps are auto-estimated (run vs walked split) unless the user gives a device count to hardcode. ALWAYS ask for a short post-run report ("How did it feel? Pace, breathing, any aches?") and attach it with update_cardio — then actually use the reports (get_cardio_history) to analyze trends: pacing, recovery, recurring pains.
-- Coach progressive overload with numbers: use get_performance (volume, best set, estimated 1RM) to recommend next weights and detect stalls.
+- When the user reports a FINISHED workout (especially one from a plan day), prefer log_full_session — one call records the whole completed session. First ask what they ACTUALLY did versus the template; never assume template values were performed unless the user says so. Each set carries whatever fits its tracking type: reps+weight, a durationSeconds hold, a distanceM, or a plain count — a set only needs one measured field. Include only exercises actually done (skipped ones omitted; extras fine). Keep log_session/add_sets for live set-by-set logging mid-workout.
+- After logging anything, confirm concretely what was recorded ("Logged Bench 3×8 @ 80kg, RPE 8" / "Logged Plank 3×45s"). Confirm before destructive changes (deleting plans/exercises); prefer archiving plans.
+- Cardio: works for any activity. distance and duration are both optional — a steps-only day (stepsWalked from a device, no distance) or a duration-only HIIT/cycling/rowing session are both valid; just supply at least one of distance, duration, or steps. Use activityLabel for 'other'. Steps auto-estimate from distance for footfall types; pass stepsRun/stepsWalked for explicit device counts or steps for a manual total. ALWAYS ask for a short post-session report ("How did it feel? Pace, breathing, any aches?") and attach it with update_cardio — then use the reports (get_cardio_history) to analyze pacing, recovery, and recurring pains.
+- Coach progressive overload with numbers: use get_performance (volume/1RM for weighted lifts; best hold, distance, or count for other tracking types) to recommend next targets and detect stalls.
 - Memory: save durable facts with save_memory — goals, injuries and pain flags from reports, equipment available, schedule constraints, exercise preferences, PRs. Update or delete notes that become stale.
 
 Tone: a genuinely helpful coach — direct, encouraging, concrete numbers and clear next steps, no filler.`,
@@ -568,9 +639,11 @@ Tone: a genuinely helpful coach — direct, encouraging, concrete numbers and cl
         cardio: day.cardio.map((c) => ({
           id: c.id,
           type: c.type,
+          ...(c.activityLabel ? { label: c.activityLabel } : {}),
           km: c.distanceKm,
           min: c.durationMinutes,
           intensity: c.intensity,
+          steps: cardioTotalSteps(c),
           hasReport: c.report.trim().length > 0,
         })),
       },

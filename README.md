@@ -66,25 +66,31 @@ everything, including the agents' memories and conversations.
 
 ## The segments
 
-- **Workout** — exercise library, workout plans with a weekly schedule, and session logging
-  two ways: live set-by-set, or a guided grid that records a whole finished workout (only
-  what you actually did vs the plan-day template, including timed work like planks) in one
-  save — plus per-exercise performance charts.
+- **Workout** — exercise library (each exercise tracked as weight×reps, reps, a timed hold,
+  a distance, or a plain count, with on-tap intensity/goal tips), workout plans with a weekly
+  schedule, and session logging two ways: live set-by-set, or a guided grid that records a
+  whole finished workout (only what you actually did vs the plan-day template, including timed
+  work like planks) in one save — plus per-exercise performance charts.
 - **Cardio** — its own tab (still coached by the workout agent and counted in the workout
-  score): a walks/runs log (run/jog/walk/interval, distance, intensity, auto-estimated
-  run-vs-walk step splits with a manual override, and a free-text "how it went" report the
-  coach uses for analysis) with weekly distance/steps tiles and history charts.
+  score): a log for runs/jogs/walks/intervals plus HIIT, cycling, rowing, elliptical, or any
+  other activity (with a free-text label). Distance and duration are both optional, so a
+  steps-only or duration-only session works; footfall types auto-estimate run-vs-walk step
+  splits (with a manual override), and every entry takes a free-text "how it went" report the
+  coach uses for analysis, with weekly distance/steps tiles and history charts.
 - **Nutrition** — your food library (macros + micronutrients), per-meal daily log, calorie &
   macro tracking vs goals with 30-day history, in-depth water tracking, and daily weight with
-  trend charts.
+  trend charts. Supplements you mark taken (see Vitamins) add their per-dose calories and
+  macros into these totals automatically, disclosed on the day-vs-goals card.
 - **Sleep** — one-tap "going to bed" / "I'm awake" buttons plus manual entry for forgotten
   nights; duration vs target history.
 - **Vitamins** — 0–100% coverage meters for ~18 tracked micronutrients (computed from logged
   foods + supplements vs daily targets), and reusable supplements you create once (with their
-  nutrient contents) and tick off each day.
-- **Mobility** — a stretch/yoga-pose/posture-drill bank, routines built from it, session
-  logging with a qualitative "how it went" report, and your own named metrics (e.g.
-  "Hamstring flexibility") rated 1-10 over time with trend charts.
+  nutrient contents and optional per-dose calories/macros) and tick off each day; a taken
+  dose's macros feed the Nutrition totals.
+- **Mobility** — a stretch/yoga-pose/posture-drill bank (each with goal, focus, where-you-
+  feel-it detail and a looping pose animation), routines built from it, session logging with a
+  qualitative "how it went" report, and your own named metrics (e.g. "Hamstring flexibility")
+  rated 1-10 over time with trend charts.
 - **Dashboard** — your daily health score (weighted: nutrition 28%, workout 22%, sleep 22%,
   vitamins 15%, mobility 13%) with weekly/monthly trends and the master agent chat.
 

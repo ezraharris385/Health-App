@@ -3,6 +3,7 @@ import type {
   CardioSession,
   CardioType,
   Exercise,
+  ExerciseTrackingType,
   PlanDay,
   PlanDayExercise,
   SessionSet,
@@ -45,12 +46,17 @@ export interface WeekSchedule {
 export interface PerformancePoint {
   date: string;
   sets: number;
+  /** total volume = Σ reps × weight (0 for non weight_reps exercises) */
   volume: number;
   bestWeight: number | null;
   bestReps: number;
   /** the best set's timed work in seconds (e.g. plank holds), if any */
   bestDurationSeconds: number | null;
-  /** e.g. "100×5", "BW×12", or "BW×60s" for time-only sets */
+  /** the best set's distance in meters (distance-tracked work), if any */
+  bestDistanceM: number | null;
+  /** the best set's count (count-tracked work), if any */
+  bestCount: number | null;
+  /** e.g. "100×5", "BW×12", "60s", "1500 m", or "50" depending on tracking type */
   bestSet: string;
   est1RM: number | null;
 }
@@ -70,6 +76,12 @@ export interface ExerciseInput {
   equipment?: string;
   instructions?: string;
   notes?: string;
+  /** How performed sets are measured; defaults to 'weight_reps' */
+  trackingType?: ExerciseTrackingType;
+  /** Recommended intensity guidance, e.g. "RPE 8" or "~75% 1RM" */
+  intensityRec?: string;
+  /** Recommended goal/target guidance, e.g. "3×8-12 for hypertrophy" */
+  goalRec?: string;
 }
 
 export interface PlanInput {
@@ -89,16 +101,27 @@ export interface PlanDayExerciseInput {
   reps?: string;
   targetWeight?: number | null;
   restSeconds?: number | null;
+  /** target hold/work seconds for timed exercises */
+  targetSeconds?: number | null;
+  /** target distance in meters for distance-tracked exercises */
+  targetDistanceM?: number | null;
+  /** target count for count-tracked exercises */
+  targetCount?: number | null;
   notes?: string;
 }
 
 export interface SetInput {
   exerciseId: number;
-  reps: number;
+  /** optional — a set only needs at least one measured field */
+  reps?: number;
   weight?: number | null;
   rpe?: number | null;
   /** seconds of timed work for the set (e.g. planks), 1-21600 */
   durationSeconds?: number | null;
+  /** meters covered (distance-tracked work), >= 0 */
+  distanceM?: number | null;
+  /** plain count (e.g. rounds/throws), integer >= 0 */
+  count?: number | null;
   notes?: string;
 }
 
@@ -107,13 +130,17 @@ export interface FullSessionEntryInput {
   exerciseName?: string;
   /** identical sets to record for this exercise (1-20, default 1) */
   sets?: number;
-  /** 0 is allowed only for time-only work (durationSeconds required then) */
-  reps: number;
+  /** optional — a set only needs at least one measured field */
+  reps?: number;
   weight?: number | null;
   /** intensity, 1-10 */
   rpe?: number | null;
   /** seconds of timed work per set (e.g. planks), 1-21600 */
   durationSeconds?: number | null;
+  /** meters covered (distance-tracked work), >= 0 */
+  distanceM?: number | null;
+  /** plain count (e.g. rounds/throws), integer >= 0 */
+  count?: number | null;
   notes?: string;
 }
 
@@ -130,11 +157,19 @@ export interface FullSessionInput {
 export interface CardioInput {
   date?: string;
   type: CardioType;
-  distanceKm: number;
-  durationMinutes: number;
+  /** free-text activity label, esp. useful for type 'other' */
+  activityLabel?: string;
+  /** optional (0 allowed) so steps-only / duration-only sessions work */
+  distanceKm?: number;
+  /** optional (0 allowed) so a steps-only session works */
+  durationMinutes?: number;
   intensity?: number;
   /** manual total-step override; omit/null to auto-estimate */
   steps?: number | null;
+  /** explicit run-step count → estimated_steps_run (omit/null to auto-estimate) */
+  stepsRun?: number | null;
+  /** explicit walked-step count → estimated_steps_walked (omit/null to auto-estimate) */
+  stepsWalked?: number | null;
   report?: string;
   notes?: string;
 }

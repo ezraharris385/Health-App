@@ -8,12 +8,26 @@ import type { MicroMap, Supplement } from "@shared/types";
 import { NUTRIENTS, NUTRIENT_BY_KEY } from "@shared/nutrients";
 import { vitaminsApi } from "../../api/vitamins";
 
+type MacroField = "calories" | "proteinG" | "carbsG" | "fatG" | "sugarG" | "sodiumMg";
+
+/** Per-dose macro fields shown in the create/edit form and the list summary. */
+const MACRO_FIELDS: { key: MacroField; label: string; unit: string; short: string }[] = [
+  { key: "calories", label: "Calories", unit: "kcal", short: "kcal" },
+  { key: "proteinG", label: "Protein", unit: "g", short: "g protein" },
+  { key: "carbsG", label: "Carbs", unit: "g", short: "g carbs" },
+  { key: "fatG", label: "Fat", unit: "g", short: "g fat" },
+  { key: "sugarG", label: "Sugar", unit: "g", short: "g sugar" },
+  { key: "sodiumMg", label: "Sodium", unit: "mg", short: "mg sodium" },
+];
+
 interface FormState {
   id: number | null; // null = creating
   name: string;
   notes: string;
   /** raw input strings keyed by nutrient key */
   nutrients: Record<string, string>;
+  /** raw input strings keyed by macro field */
+  macros: Record<string, string>;
 }
 
 const fmtAmt = (n: number) =>
@@ -30,8 +44,15 @@ export function contentsSummary(nutrients: MicroMap, max = 4): string {
   return parts.slice(0, max).join(", ") + (parts.length > max ? ` +${parts.length - max} more` : "");
 }
 
+/** Compact per-dose macro line ("50 kcal · 5 g protein…"); "" when all zero. */
+export function macrosSummary(s: Supplement): string {
+  return MACRO_FIELDS.filter((f) => (s[f.key] ?? 0) > 0)
+    .map((f) => `${fmtAmt(s[f.key])} ${f.short}`)
+    .join(" · ");
+}
+
 function emptyForm(): FormState {
-  return { id: null, name: "", notes: "", nutrients: {} };
+  return { id: null, name: "", notes: "", nutrients: {}, macros: {} };
 }
 
 function formFromSupplement(s: Supplement): FormState {
@@ -39,7 +60,11 @@ function formFromSupplement(s: Supplement): FormState {
   for (const [k, v] of Object.entries(s.nutrients)) {
     if (typeof v === "number" && v > 0) nutrients[k] = String(v);
   }
-  return { id: s.id, name: s.name, notes: s.notes, nutrients };
+  const macros: Record<string, string> = {};
+  for (const f of MACRO_FIELDS) {
+    if ((s[f.key] ?? 0) > 0) macros[f.key] = String(s[f.key]);
+  }
+  return { id: s.id, name: s.name, notes: s.notes, nutrients, macros };
 }
 
 export function SupplementManager(props: {
@@ -82,10 +107,30 @@ export function SupplementManager(props: {
       }
       if (n > 0) nutrients[key] = n;
     }
+    // Always send explicit macro values (blank → 0) so the form is WYSIWYG:
+    // clearing a field on edit resets that macro to zero.
+    const macros: Record<MacroField, number> = {
+      calories: 0,
+      proteinG: 0,
+      carbsG: 0,
+      fatG: 0,
+      sugarG: 0,
+      sodiumMg: 0,
+    };
+    for (const f of MACRO_FIELDS) {
+      const raw = (form.macros[f.key] ?? "").trim();
+      if (raw === "") continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) {
+        setError(`${f.label}: must be a non-negative number`);
+        return;
+      }
+      macros[f.key] = n;
+    }
     const ok = await run(() =>
       form.id === null
-        ? vitaminsApi.createSupplement({ name, nutrients, notes: form.notes })
-        : vitaminsApi.updateSupplement(form.id, { name, nutrients, notes: form.notes }),
+        ? vitaminsApi.createSupplement({ name, nutrients, notes: form.notes, ...macros })
+        : vitaminsApi.updateSupplement(form.id, { name, nutrients, notes: form.notes, ...macros }),
     );
     if (ok) setForm(null);
   }
@@ -128,7 +173,10 @@ export function SupplementManager(props: {
                   )}
                 </td>
                 <td style={{ fontSize: 12, color: "var(--ink-2)" }}>
-                  {contentsSummary(s.nutrients)}
+                  <div>{contentsSummary(s.nutrients)}</div>
+                  {macrosSummary(s) && (
+                    <div style={{ color: "var(--muted)", marginTop: 2 }}>{macrosSummary(s)}</div>
+                  )}
                 </td>
                 <td>
                   <span className="chip">{s.active ? "active" : "inactive"}</span>
@@ -200,6 +248,35 @@ export function SupplementManager(props: {
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
               />
             </label>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: "var(--ink-2)", fontWeight: 500, marginBottom: 2 }}>
+              Per-dose macros (leave blank for none)
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+              Counts toward your Nutrition calories/macros on days you take it.
+            </div>
+            <div className="grid cols-4">
+              {MACRO_FIELDS.map((f) => (
+                <label key={f.key} className="field">
+                  {f.label} ({f.unit})
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    step="any"
+                    placeholder="0"
+                    value={form.macros[f.key] ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        macros: { ...form.macros, [f.key]: e.target.value },
+                      })
+                    }
+                  />
+                </label>
+              ))}
+            </div>
           </div>
           <div>
             <div style={{ fontSize: 12, color: "var(--ink-2)", fontWeight: 500, marginBottom: 6 }}>

@@ -22,6 +22,7 @@ import {
   deleteWater,
   deleteWeight,
   getMacroHistory,
+  getSupplementMacroContribution,
   getWaterHistoryDays,
   listFoods,
   listWaterForDate,
@@ -78,6 +79,12 @@ nutritionRouter.delete("/foods/:id", (req, res) =>
 // Daily summary + food log
 nutritionRouter.get("/summary", (req, res) =>
   respond(res, () => getNutritionSummary(parseDate(req.query.date, todayStr()))),
+);
+
+// Read-only breakdown of macros contributed by taken supplements (already
+// folded into /summary totals by getNutritionSummary — shown, never re-added).
+nutritionRouter.get("/supplement-macros", (req, res) =>
+  respond(res, () => getSupplementMacroContribution(parseDate(req.query.date, todayStr()))),
 );
 nutritionRouter.post("/log", (req, res) => respond(res, () => createFoodLog(req.body ?? {})));
 nutritionRouter.put("/log/:id", (req, res) =>

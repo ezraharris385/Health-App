@@ -77,6 +77,52 @@ export function sanitizeNutrients(input: unknown): MicroMap {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 // ---------------------------------------------------------------------------
+// Supplement macros (per dose) — flow into the Nutrition calorie/macro tracker
+// on days the supplement is marked taken (see summaries.getNutritionSummary).
+// ---------------------------------------------------------------------------
+
+/** Macro field → DB column, ordered for stable INSERT/UPDATE clauses. */
+const MACRO_FIELDS = [
+  ["calories", "calories"],
+  ["proteinG", "protein_g"],
+  ["carbsG", "carbs_g"],
+  ["fatG", "fat_g"],
+  ["sugarG", "sugar_g"],
+  ["sodiumMg", "sodium_mg"],
+] as const;
+
+type MacroKey = (typeof MACRO_FIELDS)[number][0];
+export type SupplementMacros = Record<MacroKey, number>;
+
+const ZERO_MACROS: SupplementMacros = {
+  calories: 0,
+  proteinG: 0,
+  carbsG: 0,
+  fatG: 0,
+  sugarG: 0,
+  sodiumMg: 0,
+};
+
+/**
+ * Parse the optional per-dose macro fields (calories, proteinG, carbsG, fatG,
+ * sugarG, sodiumMg). Each must be a non-negative finite number; absent/blank
+ * fields fall back to the provided defaults (0 on create, current value on
+ * update). Extra keys are ignored.
+ */
+export function parseMacros(input: any, defaults: SupplementMacros): SupplementMacros {
+  const out: SupplementMacros = { ...defaults };
+  for (const [field] of MACRO_FIELDS) {
+    const v = input?.[field];
+    if (v === undefined || v === null || v === "") continue;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0)
+      throw new BadRequestError(`${field} must be a non-negative number`);
+    out[field] = n;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Supplement library
 // ---------------------------------------------------------------------------
 
@@ -103,9 +149,24 @@ export function createSupplement(input: any): Supplement {
     throw new BadRequestError("name is required");
   const nutrients = sanitizeNutrients(input.nutrients);
   const notes = typeof input.notes === "string" ? input.notes : "";
+  const m = parseMacros(input, ZERO_MACROS);
   const info = db
-    .prepare("INSERT INTO supplements (name, nutrients_json, notes, active) VALUES (?, ?, ?, 1)")
-    .run(input.name.trim(), JSON.stringify(nutrients), notes);
+    .prepare(
+      `INSERT INTO supplements
+         (name, nutrients_json, notes, active, calories, protein_g, carbs_g, fat_g, sugar_g, sodium_mg)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.name.trim(),
+      JSON.stringify(nutrients),
+      notes,
+      m.calories,
+      m.proteinG,
+      m.carbsG,
+      m.fatG,
+      m.sugarG,
+      m.sodiumMg,
+    );
   return getSupplementById(Number(info.lastInsertRowid))!;
 }
 
@@ -123,11 +184,32 @@ export function updateSupplement(id: number, patch: any): Supplement {
     else if (patch.active === 0 || patch.active === false) active = 0;
     else throw new BadRequestError("active must be a boolean or 0/1");
   }
-  db.prepare("UPDATE supplements SET name = ?, nutrients_json = ?, notes = ?, active = ? WHERE id = ?").run(
+  // Absent macro fields keep their current value (partial patch); present ones
+  // are re-validated as non-negative numbers.
+  const m = parseMacros(patch, {
+    calories: current.calories,
+    proteinG: current.proteinG,
+    carbsG: current.carbsG,
+    fatG: current.fatG,
+    sugarG: current.sugarG,
+    sodiumMg: current.sodiumMg,
+  });
+  db.prepare(
+    `UPDATE supplements
+       SET name = ?, nutrients_json = ?, notes = ?, active = ?,
+           calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, sugar_g = ?, sodium_mg = ?
+     WHERE id = ?`,
+  ).run(
     name,
     JSON.stringify(nutrients),
     notes,
     active,
+    m.calories,
+    m.proteinG,
+    m.carbsG,
+    m.fatG,
+    m.sugarG,
+    m.sodiumMg,
     id,
   );
   return getSupplementById(id)!;

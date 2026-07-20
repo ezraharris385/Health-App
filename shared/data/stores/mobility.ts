@@ -13,6 +13,7 @@
 import { db, dateRange, daysAgoStr, isValidDateStr, todayStr } from "../db";
 import { mapMobilitySession } from "../summaries";
 import type {
+  MobilityAnimKind,
   MobilityAssessment,
   MobilityKind,
   MobilityMetric,
@@ -57,6 +58,17 @@ export function parseId(v: unknown, field = "id"): number {
 const STRETCH_CATEGORIES: StretchCategory[] = ["stretch", "yoga", "posture"];
 const MOBILITY_KINDS: MobilityKind[] = ["stretch", "yoga", "posture", "mixed"];
 const DIRECTIONS: MobilityMetric["direction"][] = ["higher_better", "lower_better"];
+export const ANIM_KINDS: MobilityAnimKind[] = [
+  "none",
+  "reach_up",
+  "forward_fold",
+  "twist",
+  "lunge",
+  "hold",
+  "side_bend",
+  "cat_cow",
+  "neck_roll",
+];
 
 function optStr(v: unknown, fallback = ""): string {
   if (v === undefined || v === null) return fallback;
@@ -96,6 +108,13 @@ function normCategory(v: unknown, def: StretchCategory): StretchCategory {
   if (!STRETCH_CATEGORIES.includes(v as StretchCategory))
     throw new BadRequestError(`category must be one of: ${STRETCH_CATEGORIES.join(", ")}`);
   return v as StretchCategory;
+}
+
+function normAnimKind(v: unknown, def: MobilityAnimKind): MobilityAnimKind {
+  if (v === undefined || v === null || v === "") return def;
+  if (!ANIM_KINDS.includes(v as MobilityAnimKind))
+    throw new BadRequestError(`animKind must be one of: ${ANIM_KINDS.join(", ")}`);
+  return v as MobilityAnimKind;
 }
 
 function normKind(v: unknown, def: MobilityKind): MobilityKind {
@@ -142,6 +161,10 @@ export function mapStretch(r: any): Stretch {
     targetAreas: r.target_areas,
     instructions: r.instructions,
     defaultHoldSeconds: r.default_hold_seconds,
+    goal: r.goal ?? "",
+    focus: r.focus ?? "",
+    feelWhere: r.feel_where ?? "",
+    animKind: (r.anim_kind ?? "none") as MobilityAnimKind,
     notes: r.notes,
     createdAt: r.created_at,
   };
@@ -253,8 +276,10 @@ export function createStretch(input: any): Stretch {
     throw new BadRequestError("name is required");
   const info = db
     .prepare(
-      `INSERT INTO stretches (name, category, target_areas, instructions, default_hold_seconds, notes)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO stretches
+         (name, category, target_areas, instructions, default_hold_seconds,
+          goal, focus, feel_where, anim_kind, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.name.trim(),
@@ -262,6 +287,10 @@ export function createStretch(input: any): Stretch {
       optStr(input.targetAreas),
       optStr(input.instructions),
       posIntOrNull(input.defaultHoldSeconds, "defaultHoldSeconds"),
+      optStr(input.goal),
+      optStr(input.focus),
+      optStr(input.feelWhere),
+      normAnimKind(input.animKind, "none"),
       optStr(input.notes),
     );
   return getStretchById(Number(info.lastInsertRowid))!;
@@ -273,7 +302,8 @@ export function updateStretch(id: number, patch: any): Stretch {
   const name = normPatchName(patch.name, current.name);
   db.prepare(
     `UPDATE stretches SET name = ?, category = ?, target_areas = ?, instructions = ?,
-       default_hold_seconds = ?, notes = ? WHERE id = ?`,
+       default_hold_seconds = ?, goal = ?, focus = ?, feel_where = ?, anim_kind = ?,
+       notes = ? WHERE id = ?`,
   ).run(
     name,
     patch.category !== undefined ? normCategory(patch.category, current.category) : current.category,
@@ -282,6 +312,10 @@ export function updateStretch(id: number, patch: any): Stretch {
     patch.defaultHoldSeconds !== undefined
       ? posIntOrNull(patch.defaultHoldSeconds, "defaultHoldSeconds")
       : current.defaultHoldSeconds,
+    patch.goal !== undefined ? optStr(patch.goal) : current.goal,
+    patch.focus !== undefined ? optStr(patch.focus) : current.focus,
+    patch.feelWhere !== undefined ? optStr(patch.feelWhere) : current.feelWhere,
+    patch.animKind !== undefined ? normAnimKind(patch.animKind, current.animKind) : current.animKind,
     patch.notes !== undefined ? optStr(patch.notes) : current.notes,
     id,
   );

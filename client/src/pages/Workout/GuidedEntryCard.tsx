@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { Exercise } from "@shared/types";
+import type { Exercise, ExerciseTrackingType, PlanDayExercise } from "@shared/types";
 import {
   workoutApi,
   type FullSessionEntryInput,
@@ -7,31 +7,34 @@ import {
   type PlanFull,
   type WeekDaySchedule,
 } from "../../api/workout";
+import {
+  buildMeasure,
+  describeTarget,
+  draftHasValue,
+  draftTouched,
+  emptyDraft,
+  parseSets,
+  templatePlaceholders,
+  TrackingInputs,
+  trackingLabel,
+  type TrackDraft,
+} from "./tracking";
 
 interface EntryRow {
   key: number;
   exerciseId: number;
   exerciseName: string;
+  trackingType: ExerciseTrackingType;
   /** Plan-day prescription when the row came from the template; null for added rows. */
-  template: { sets: number; reps: string; targetWeight: number | null } | null;
-  sets: string;
-  reps: string;
-  weight: string;
-  rpe: string;
-  /** Timed work in minutes (converted ×60 to durationSeconds on save). */
-  timeMin: string;
+  template: PlanDayExercise | null;
+  draft: TrackDraft;
 }
-
-function templateHint(t: NonNullable<EntryRow["template"]>): string {
-  return `${t.sets}×${t.reps}${t.targetWeight != null ? ` @ ${t.targetWeight} lb` : ""}`;
-}
-
-const rowFilled = (r: EntryRow) => r.reps.trim() !== "" || r.timeMin.trim() !== "";
 
 /**
  * Guided after-the-fact entry: pick the plan day you did (today's scheduled
- * preselected) or an empty workout, fill in what you ACTUALLY did per exercise,
- * and save everything as one completed session. Blank rows = skipped.
+ * preselected) or an empty workout, fill in what you ACTUALLY did per exercise
+ * (only the inputs that exercise's tracking type needs), and save everything as
+ * one completed session. Blank rows = skipped.
  */
 export function GuidedEntryCard(props: {
   scheduled: WeekDaySchedule["scheduled"];
@@ -45,6 +48,12 @@ export function GuidedEntryCard(props: {
   const [saved, setSaved] = useState<string | null>(null);
   const nextKey = useRef(1);
 
+  const exById = useMemo(() => {
+    const m = new Map<number, Exercise>();
+    for (const e of exercises) m.set(e.id, e);
+    return m;
+  }, [exercises]);
+
   const dayById = useMemo(() => {
     const m = new Map<number, PlanDayFull>();
     for (const p of plans) for (const d of p.days) m.set(d.id, d);
@@ -53,6 +62,10 @@ export function GuidedEntryCard(props: {
 
   const defaultDayId = scheduled.length > 0 ? String(scheduled[0].planDayId) : "";
 
+  function trackingOf(exerciseId: number): ExerciseTrackingType {
+    return exById.get(exerciseId)?.trackingType ?? "weight_reps";
+  }
+
   function rowsFromDay(id: string): EntryRow[] {
     const day = id === "" ? undefined : dayById.get(Number(id));
     if (!day) return [];
@@ -60,12 +73,9 @@ export function GuidedEntryCard(props: {
       key: nextKey.current++,
       exerciseId: pe.exerciseId,
       exerciseName: pe.exerciseName ?? "Exercise",
-      template: { sets: pe.sets, reps: pe.reps, targetWeight: pe.targetWeight },
-      sets: String(pe.sets),
-      reps: "",
-      weight: "",
-      rpe: "",
-      timeMin: "",
+      trackingType: trackingOf(pe.exerciseId),
+      template: pe,
+      draft: emptyDraft(String(pe.sets)),
     }));
   }
 
@@ -80,8 +90,8 @@ export function GuidedEntryCard(props: {
     setSaved(null);
   }
 
-  function updateRow(index: number, patch: Partial<EntryRow>) {
-    setRows(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  function patchDraft(index: number, patch: Partial<TrackDraft>) {
+    setRows(rows.map((r, i) => (i === index ? { ...r, draft: { ...r.draft, ...patch } } : r)));
     setSaved(null);
   }
 
@@ -91,7 +101,7 @@ export function GuidedEntryCard(props: {
   }
 
   function addRow() {
-    const ex = exercises.find((e) => String(e.id) === pickId);
+    const ex = exById.get(Number(pickId));
     if (!ex) return;
     setRows([
       ...rows,
@@ -99,12 +109,9 @@ export function GuidedEntryCard(props: {
         key: nextKey.current++,
         exerciseId: ex.id,
         exerciseName: ex.name,
+        trackingType: ex.trackingType,
         template: null,
-        sets: "3",
-        reps: "",
-        weight: "",
-        rpe: "",
-        timeMin: "",
+        draft: emptyDraft("3"),
       },
     ]);
     setPickId("");
@@ -115,49 +122,27 @@ export function GuidedEntryCard(props: {
     () => exercises.filter((ex) => !rows.some((r) => r.exerciseId === ex.id)),
     [exercises, rows],
   );
-  const filledCount = rows.filter(rowFilled).length;
+  const filledCount = rows.filter((r) => draftHasValue(r.trackingType, r.draft)).length;
 
   async function save() {
     const entries: FullSessionEntryInput[] = [];
     for (const row of rows) {
-      if (!rowFilled(row)) continue; // blank = didn't do it
-      const sets = row.sets.trim() === "" ? 1 : Number(row.sets);
-      if (!Number.isInteger(sets) || sets < 1 || sets > 20) {
-        setError(`${row.exerciseName}: sets must be a whole number 1-20`);
+      // A completely blank row = skipped, omit it silently. But a row the user
+      // half-filled (e.g. a weight or intensity with no reps) is a mistake, not
+      // a skip — fall through so buildMeasure validates it and surfaces the
+      // error instead of silently dropping the exercise.
+      if (!draftTouched(row.trackingType, row.draft)) continue;
+      const setsRes = parseSets(row.draft.sets, row.exerciseName);
+      if (!setsRes.ok) {
+        setError(setsRes.error);
         return;
       }
-      const reps = row.reps.trim() === "" ? 0 : Number(row.reps);
-      if (!Number.isInteger(reps) || reps < 0 || reps > 1000) {
-        setError(`${row.exerciseName}: reps must be a whole number`);
+      const mRes = buildMeasure(row.trackingType, row.draft, row.exerciseName);
+      if (!mRes.ok) {
+        setError(mRes.error);
         return;
       }
-      const weight = row.weight.trim() === "" ? null : Number(row.weight);
-      if (weight !== null && (!Number.isFinite(weight) || weight < 0)) {
-        setError(`${row.exerciseName}: weight must be 0 or more`);
-        return;
-      }
-      const timeMin = row.timeMin.trim() === "" ? null : Number(row.timeMin);
-      // Validate the converted seconds (the store's real bound is 1..21600s).
-      const durationSeconds = timeMin === null ? null : Math.round(timeMin * 60);
-      if (
-        durationSeconds !== null &&
-        (!Number.isFinite(durationSeconds) || durationSeconds < 1 || durationSeconds > 21600)
-      ) {
-        setError(`${row.exerciseName}: time must be between 0.01 and 360 minutes`);
-        return;
-      }
-      if (reps === 0 && durationSeconds === null) {
-        setError(`${row.exerciseName}: reps 0 needs a time — enter reps, or minutes for timed work`);
-        return;
-      }
-      entries.push({
-        exerciseId: row.exerciseId,
-        sets,
-        reps,
-        weight,
-        rpe: row.rpe === "" ? null : Number(row.rpe),
-        durationSeconds,
-      });
+      entries.push({ exerciseId: row.exerciseId, sets: setsRes.sets, ...mRes.measure });
     }
     if (entries.length === 0) return;
     setBusy(true);
@@ -188,11 +173,7 @@ export function GuidedEntryCard(props: {
       <div className="stack">
         <label className="field">
           Which workout was it?
-          <select
-            className="input"
-            value={dayId}
-            onChange={(e) => selectDay(e.target.value)}
-          >
+          <select className="input" value={dayId} onChange={(e) => selectDay(e.target.value)}>
             <option value="">Empty workout (no template)</option>
             {plans.flatMap((p) =>
               p.days.map((d) => (
@@ -216,62 +197,24 @@ export function GuidedEntryCard(props: {
                 <div className="row between wrap">
                   <span style={{ fontWeight: 600, fontSize: 13 }}>{row.exerciseName}</span>
                   <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                    {row.template ? templateHint(row.template) : "extra"}
+                    {row.template
+                      ? describeTarget(row.template, row.trackingType)
+                      : trackingLabel(row.trackingType)}
                   </span>
                 </div>
-                <div className="row wrap">
-                  <input
-                    className="input"
-                    style={{ width: 58 }}
-                    type="number"
-                    min={1}
-                    max={20}
-                    title="Sets performed"
-                    value={row.sets}
-                    onChange={(e) => updateRow(i, { sets: e.target.value })}
-                  />
-                  <input
-                    className="input"
-                    style={{ width: 70 }}
-                    type="number"
-                    title="Reps per set — leave blank if you skipped this exercise"
-                    placeholder={row.template?.reps ?? "reps"}
-                    value={row.reps}
-                    onChange={(e) => updateRow(i, { reps: e.target.value })}
-                  />
-                  <input
-                    className="input"
-                    style={{ width: 76 }}
-                    type="number"
-                    title="Weight used (lb)"
-                    placeholder={row.template?.targetWeight != null ? String(row.template.targetWeight) : "lb"}
-                    value={row.weight}
-                    onChange={(e) => updateRow(i, { weight: e.target.value })}
-                  />
-                  <select
-                    className="input"
-                    style={{ width: 64 }}
-                    title="Intensity (RPE 1-10)"
-                    value={row.rpe}
-                    onChange={(e) => updateRow(i, { rpe: e.target.value })}
-                  >
-                    <option value="">—</option>
-                    {Array.from({ length: 10 }, (_, n) => n + 1).map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className="input"
-                    style={{ width: 70 }}
-                    type="number"
-                    step={0.5}
-                    min={0.5}
-                    title="Timed work per set, in minutes (e.g. planks)"
-                    placeholder="min"
-                    value={row.timeMin}
-                    onChange={(e) => updateRow(i, { timeMin: e.target.value })}
+                <div className="row wrap" style={{ alignItems: "flex-end" }}>
+                  <TrackingInputs
+                    type={row.trackingType}
+                    draft={row.draft}
+                    onChange={(patch) => patchDraft(i, patch)}
+                    placeholders={
+                      row.template
+                        ? templatePlaceholders(row.template, row.trackingType)
+                        : undefined
+                    }
+                    showSets
+                    showRpe
+                    disabled={busy}
                   />
                   <button
                     className="btn small danger"
@@ -312,7 +255,7 @@ export function GuidedEntryCard(props: {
           </button>
           {filledCount === 0 && rows.length > 0 && (
             <span style={{ fontSize: 12, color: "var(--muted)" }}>
-              Enter reps or time on at least one row.
+              Fill in what you did on at least one row.
             </span>
           )}
         </div>

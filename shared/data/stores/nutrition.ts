@@ -376,3 +376,52 @@ export function deleteWeight(id: number): void {
   const info = db.prepare("DELETE FROM weight_logs WHERE id = ?").run(id);
   if (!info.changes) throw new NotFoundError(`No weight log #${id}`);
 }
+
+// ---------------------------------------------------------------------------
+// Supplement macro contribution (read-only; display breakdown)
+// ---------------------------------------------------------------------------
+
+export interface SupplementMacroContribution {
+  date: string;
+  /** how many taken-supplement rows contributed macros on this date */
+  count: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  sugarG: number;
+  sodiumMg: number;
+}
+
+/**
+ * Macros contributed by taken supplements on a date. getNutritionSummary
+ * (Foundation) already ADDS these into the day's totals; this is a read-only
+ * breakdown so the UI can surface "incl. N kcal from supplements" without
+ * re-adding anything (no double counting). Mirrors the summing query in
+ * getNutritionSummary exactly (one row per taken supplement_log).
+ */
+export function getSupplementMacroContribution(date: string): SupplementMacroContribution {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count,
+              COALESCE(SUM(s.calories), 0) AS calories,
+              COALESCE(SUM(s.protein_g), 0) AS protein_g,
+              COALESCE(SUM(s.carbs_g), 0) AS carbs_g,
+              COALESCE(SUM(s.fat_g), 0) AS fat_g,
+              COALESCE(SUM(s.sugar_g), 0) AS sugar_g,
+              COALESCE(SUM(s.sodium_mg), 0) AS sodium_mg
+       FROM supplement_logs sl JOIN supplements s ON s.id = sl.supplement_id
+       WHERE sl.date = ?`,
+    )
+    .get(date) as any;
+  return {
+    date,
+    count: row?.count ?? 0,
+    calories: round1(row?.calories ?? 0),
+    proteinG: round1(row?.protein_g ?? 0),
+    carbsG: round1(row?.carbs_g ?? 0),
+    fatG: round1(row?.fat_g ?? 0),
+    sugarG: round1(row?.sugar_g ?? 0),
+    sodiumMg: Math.round(row?.sodium_mg ?? 0),
+  };
+}

@@ -106,15 +106,26 @@ redefine them. registry.ts gives master `consult_agent` — do not add it in the
 
 ### workout
 - Exercise library CRUD (name, muscle groups, equipment, form instructions, notes).
+  Each exercise has a `trackingType` (`weight_reps` | `reps` | `time` |
+  `distance` | `count`) that drives which fields a set records (weight×reps,
+  reps, a timed hold, a distance, or a plain count), plus free-text
+  `intensityRec` / `goalRec` recommendations surfaced on tap.
 - Plans: CRUD; plan days with `dayOfWeek` (0=Sun..6=Sat) forming a weekly
-  schedule; each day has ordered exercises (sets/reps/target weight/rest).
+  schedule; each day has ordered exercises (sets/reps/target weight/rest, plus
+  optional `targetSeconds` / `targetDistanceM` / `targetCount` for the non-weight
+  tracking types). Numeric plan targets and rest are floored at 0.
 - Sessions: start/log a session (optionally from a plan day), record sets
-  (reps/weight/RPE), complete it. Performance history per exercise (best set,
-  volume over time — chart it).
-- Cardio (walks & runs): log type (run/jog/walk/interval), distance, duration,
-  intensity 1-10, optional free-text report; steps auto-estimated via
-  `estimateSteps()` split run vs walked, with the option to hardcode total steps.
-  History charts (distance/steps over time). Cardio lives on its OWN page
+  (reps/weight/RPE, plus optional `durationSeconds`/`distanceM`/`count`), complete
+  it. A set must record real, positive work (a bare 0 is rejected). Performance
+  history per exercise (best set, volume over time — chart it).
+- Cardio: log type — `run`/`jog`/`walk`/`interval` (footfall), `hiit`,
+  `cycling`, `rowing`, `elliptical`, or `other` (set `activityLabel` for a
+  free-text name, e.g. "stair climber") — with distance, duration, intensity
+  1-10, optional free-text report. distance and duration are both optional (a
+  steps-only or duration-only session is valid). Steps auto-estimate via
+  `estimateSteps()` split run vs walked for footfall types (other types
+  estimate 0/0), with the option to hardcode total steps. History charts
+  (distance/steps over time). Cardio lives on its OWN page
   (`client/src/pages/Cardio/**`, nav "/cardio") separate from lifting; the
   workout agent still owns cardio data and chats on both pages.
 - Guided template entry: `logFullSession` records a complete workout in one
@@ -139,6 +150,12 @@ redefine them. registry.ts gives master `consult_agent` — do not add it in the
 - Food library CRUD (macros + optional micros map keyed by shared/nutrients keys).
 - Food log per day/meal with servings; daily summary vs goals (calories + macros),
   meal breakdown; history charts (calories/macros over 30 days).
+- Cross-segment: on any day a supplement is marked taken (vitamins segment), its
+  per-dose macros (calories/protein/carbs/fat/sugar/sodium) are added into
+  `getNutritionSummary().totals`, so they flow automatically into the calorie
+  tracker, energy balance, and daily score. `byMeal` stays food-only; the
+  `GET /api/nutrition/supplement-macros` endpoint surfaces the taken-supplement
+  contribution so the page can disclose it and the totals reconcile.
 - Water: quick-add buttons (+250/+500/custom), daily total vs goal, 30-day chart.
 - Weight: log per day, 90-day trend chart vs optional goal line.
 - Page: today's summary (StatTiles + macro bars vs goals), meal log table,
@@ -163,8 +180,11 @@ redefine them. registry.ts gives master `consult_agent` — do not add it in the
 - Daily coverage: `getVitaminSummary(date)` → Meter per nutrient (0-100%),
   food vs supplement split shown in detail text.
 - Supplements: create with per-dose nutrient contents (form with rows keyed by
-  shared/nutrients), toggle active; one-tap "taken today" toggles (unique per
-  date), history.
+  shared/nutrients) AND optional per-dose macros (calories/proteinG/carbsG/fatG/
+  sugarG/sodiumMg, default 0); toggle active; one-tap "taken today" toggles
+  (unique per date), history. Taken-dose macros flow into the Nutrition calorie/
+  macro totals (see the nutrition section) — fill them for calorie-carrying
+  products (protein/greens powders, sugary gummies), leave 0 for plain pills.
 - Page: today's coverage meters (sorted worst-first), supplement checklist for
   today, supplement manager, 30-day average coverage chart, AgentChat.
 - Agent tools: read coverage (today + trends), manage supplements (create with
@@ -175,7 +195,10 @@ redefine them. registry.ts gives master `consult_agent` — do not add it in the
 
 ### mobility (stretching / yoga / posture)
 - Stretch bank CRUD: name, category (`stretch`|`yoga`|`posture`), targetAreas
-  (comma-separated), instructions (form cues), defaultHoldSeconds, notes.
+  (comma-separated), instructions (form cues), defaultHoldSeconds, notes, plus
+  the on-tap detail fields `goal` / `focus` / `feelWhere` and an `animKind`
+  (`none`|`reach_up`|`forward_fold`|`twist`|`lunge`|`hold`|`side_bend`|`cat_cow`|
+  `neck_roll`) that selects the looping pose animation.
 - Routines: CRUD with ordered items referencing bank stretches (holdSeconds,
   reps, perSide, notes); archive instead of destructive delete when in use;
   creating a routine accepts nested items in one call.

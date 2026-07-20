@@ -55,6 +55,12 @@ export function mapSupplement(r: any): Supplement {
     id: r.id,
     name: r.name,
     nutrients: safeJson(r.nutrients_json, {}),
+    calories: r.calories ?? 0,
+    proteinG: r.protein_g ?? 0,
+    carbsG: r.carbs_g ?? 0,
+    fatG: r.fat_g ?? 0,
+    sugarG: r.sugar_g ?? 0,
+    sodiumMg: r.sodium_mg ?? 0,
     notes: r.notes,
     active: r.active,
     createdAt: r.created_at,
@@ -83,6 +89,7 @@ export function mapCardio(r: any): CardioSession {
     id: r.id,
     date: r.date,
     type: r.type,
+    activityLabel: r.activity_label ?? "",
     distanceKm: r.distance_km,
     durationMinutes: r.duration_minutes,
     intensity: r.intensity,
@@ -166,6 +173,25 @@ export function getNutritionSummary(date: string): DailyNutritionSummary {
     };
     add(totals);
     add(byMeal[log.meal]);
+  }
+  // Taken supplements contribute their per-dose macros to the day's totals so
+  // supplement calories/macros flow into the calorie tracker and energy intake
+  // automatically (once per taken supplement_log row). byMeal stays food-only,
+  // and micros are handled separately in getVitaminSummary — not added here.
+  const suppRows = db
+    .prepare(
+      `SELECT s.calories, s.protein_g, s.carbs_g, s.fat_g, s.sugar_g, s.sodium_mg
+       FROM supplement_logs sl JOIN supplements s ON s.id = sl.supplement_id
+       WHERE sl.date = ?`,
+    )
+    .all(date) as any[];
+  for (const s of suppRows) {
+    totals.calories += s.calories ?? 0;
+    totals.proteinG += s.protein_g ?? 0;
+    totals.carbsG += s.carbs_g ?? 0;
+    totals.fatG += s.fat_g ?? 0;
+    totals.sugarG += s.sugar_g ?? 0;
+    totals.sodiumMg += s.sodium_mg ?? 0;
   }
   roundTotals(totals);
   (Object.keys(byMeal) as MealType[]).forEach((m) => roundTotals(byMeal[m]));
@@ -416,7 +442,9 @@ export function getWorkoutDaySummary(date: string): WorkoutDaySummary {
 /**
  * Estimate run vs walked steps for a cardio session.
  * Stride heuristics: running ~0.95m/step at faster paces, walking ~0.7m/step.
- * Interval sessions assume a 60/40 run/walk distance split.
+ * Interval sessions assume a 60/40 run/walk distance split. Only step-bearing
+ * foot activities (run/jog/walk/interval) produce estimates; every other type
+ * (hiit, cycling, rowing, elliptical, other) returns zero without throwing.
  */
 export function estimateSteps(
   type: CardioSession["type"],
@@ -441,6 +469,8 @@ export function estimateSteps(
         walked: Math.round(walkMeters / WALK_STRIDE),
       };
     }
+    default:
+      return { run: 0, walked: 0 };
   }
 }
 

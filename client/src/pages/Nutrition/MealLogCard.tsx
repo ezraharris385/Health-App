@@ -13,6 +13,7 @@ export function MealLogCard(props: {
   date: string;
   onChange: () => void;
   reloadKey?: number;
+  onAskCoach?: (message: string) => void;
 }) {
   const s = props.summary;
 
@@ -27,7 +28,12 @@ export function MealLogCard(props: {
   return (
     <div className="card">
       <h3>Meal log — {props.date}</h3>
-      <FoodPicker date={props.date} onLogged={props.onChange} reloadKey={props.reloadKey} />
+      <FoodPicker
+        date={props.date}
+        onLogged={props.onChange}
+        reloadKey={props.reloadKey}
+        onAskCoach={props.onAskCoach}
+      />
 
       {s && s.logs.length > 0 ? (
         <table className="data" style={{ marginTop: 14 }}>

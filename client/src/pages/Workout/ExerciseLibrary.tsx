@@ -1,14 +1,24 @@
 import { Fragment, useState } from "react";
-import type { Exercise } from "@shared/types";
+import type { Exercise, ExerciseTrackingType } from "@shared/types";
 import { workoutApi } from "../../api/workout";
+import { TRACKING_TYPES, trackingLabel } from "./tracking";
 
-/** Exercise library CRUD: name, muscle groups, equipment, form instructions, notes. */
+function truncate(s: string, n = 42): string {
+  const t = s.trim();
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+}
+
+/** Exercise library CRUD: name, muscle groups, equipment, tracking type,
+ *  intensity + goal recommendations, form instructions, notes. */
 export function ExerciseLibrary(props: { exercises: Exercise[]; onChange: () => void }) {
   const { exercises, onChange } = props;
   const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [muscles, setMuscles] = useState("");
   const [equipment, setEquipment] = useState("");
+  const [trackingType, setTrackingType] = useState<ExerciseTrackingType>("weight_reps");
+  const [intensityRec, setIntensityRec] = useState("");
+  const [goalRec, setGoalRec] = useState("");
   const [instructions, setInstructions] = useState("");
   const [notes, setNotes] = useState("");
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -20,6 +30,9 @@ export function ExerciseLibrary(props: { exercises: Exercise[]; onChange: () => 
     setName("");
     setMuscles("");
     setEquipment("");
+    setTrackingType("weight_reps");
+    setIntensityRec("");
+    setGoalRec("");
     setInstructions("");
     setNotes("");
   }
@@ -29,6 +42,9 @@ export function ExerciseLibrary(props: { exercises: Exercise[]; onChange: () => 
     setName(ex.name);
     setMuscles(ex.muscleGroups);
     setEquipment(ex.equipment);
+    setTrackingType(ex.trackingType);
+    setIntensityRec(ex.intensityRec);
+    setGoalRec(ex.goalRec);
     setInstructions(ex.instructions);
     setNotes(ex.notes);
   }
@@ -41,6 +57,9 @@ export function ExerciseLibrary(props: { exercises: Exercise[]; onChange: () => 
         name: name.trim(),
         muscleGroups: muscles,
         equipment,
+        trackingType,
+        intensityRec,
+        goalRec,
         instructions,
         notes,
       };
@@ -111,6 +130,41 @@ export function ExerciseLibrary(props: { exercises: Exercise[]; onChange: () => 
             onChange={(e) => setEquipment(e.target.value)}
           />
         </div>
+        <div className="row wrap">
+          <label className="field" style={{ flex: 1, minWidth: 150 }}>
+            Tracking type
+            <select
+              className="input"
+              value={trackingType}
+              onChange={(e) => setTrackingType(e.target.value as ExerciseTrackingType)}
+              title="How each performed set is measured"
+            >
+              {TRACKING_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label} — {t.hint}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field" style={{ flex: 2, minWidth: 160 }}>
+            Intensity recommendation
+            <input
+              className="input"
+              placeholder="e.g. RPE 8, ~2 reps in reserve"
+              value={intensityRec}
+              onChange={(e) => setIntensityRec(e.target.value)}
+            />
+          </label>
+          <label className="field" style={{ flex: 2, minWidth: 160 }}>
+            Goal recommendation
+            <input
+              className="input"
+              placeholder="e.g. 3×8-12 for hypertrophy"
+              value={goalRec}
+              onChange={(e) => setGoalRec(e.target.value)}
+            />
+          </label>
+        </div>
         <textarea
           className="input"
           rows={2}
@@ -142,63 +196,99 @@ export function ExerciseLibrary(props: { exercises: Exercise[]; onChange: () => 
         {exercises.length === 0 ? (
           <p className="empty">
             No exercises yet — add one above, or ask the coach for a plan and it will fill the
-            library with form instructions.
+            library with tracking types, form cues, and recommendations.
           </p>
         ) : (
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Muscles</th>
-                <th>Equipment</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {exercises.map((ex) => (
-                <Fragment key={ex.id}>
-                  <tr>
-                    <td>
-                      <button
-                        className="btn small"
-                        style={{ border: "none", padding: "0 2px", fontWeight: 600 }}
-                        onClick={() => setDetailId(detailId === ex.id ? null : ex.id)}
-                        title="Show form instructions"
-                      >
-                        {detailId === ex.id ? "▾" : "▸"} {ex.name}
-                      </button>
-                    </td>
-                    <td>{ex.muscleGroups || "—"}</td>
-                    <td>{ex.equipment || "—"}</td>
-                    <td>
-                      <div className="row" style={{ gap: 4 }}>
-                        <button className="btn small" disabled={busy} onClick={() => loadForEdit(ex)}>
-                          Edit
-                        </button>
-                        <button className="btn small danger" disabled={busy} onClick={() => remove(ex)}>
-                          ×
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  {detailId === ex.id && (
-                    <tr>
-                      <td colSpan={4} style={{ fontSize: 12, color: "var(--ink-2)" }}>
-                        <strong>Form:</strong>{" "}
-                        {ex.instructions || <em>No instructions yet — ask the coach to add cues.</em>}
-                        {ex.notes && (
-                          <>
-                            <br />
-                            <strong>Notes:</strong> {ex.notes}
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ overflowX: "auto" }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Muscles</th>
+                  <th>Tracks</th>
+                  <th>Goal rec</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {exercises.map((ex) => {
+                  const open = detailId === ex.id;
+                  return (
+                    <Fragment key={ex.id}>
+                      <tr>
+                        <td>
+                          <button
+                            className="btn small"
+                            style={{ border: "none", padding: "0 2px", fontWeight: 600 }}
+                            onClick={() => setDetailId(open ? null : ex.id)}
+                            title="Show recommendations & form"
+                          >
+                            {open ? "▾" : "▸"} {ex.name}
+                          </button>
+                        </td>
+                        <td>{ex.muscleGroups || "—"}</td>
+                        <td>
+                          <span className="chip">{trackingLabel(ex.trackingType)}</span>
+                        </td>
+                        <td style={{ color: "var(--ink-2)", fontSize: 12 }}>
+                          {ex.goalRec ? truncate(ex.goalRec) : "—"}
+                        </td>
+                        <td>
+                          <div className="row" style={{ gap: 4 }}>
+                            <button
+                              className="btn small"
+                              disabled={busy}
+                              onClick={() => loadForEdit(ex)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="btn small danger"
+                              disabled={busy}
+                              onClick={() => remove(ex)}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr>
+                          <td colSpan={5} style={{ fontSize: 12, color: "var(--ink-2)" }}>
+                            <div className="stack" style={{ gap: 4 }}>
+                              <div>
+                                <strong>Tracking:</strong> {trackingLabel(ex.trackingType)}
+                                {ex.equipment ? ` · ${ex.equipment}` : ""}
+                              </div>
+                              <div>
+                                <strong>Intensity:</strong>{" "}
+                                {ex.intensityRec || <em>no intensity recommendation yet</em>}
+                              </div>
+                              <div>
+                                <strong>Goal:</strong>{" "}
+                                {ex.goalRec || <em>no goal recommendation yet</em>}
+                              </div>
+                              <div>
+                                <strong>Form:</strong>{" "}
+                                {ex.instructions || (
+                                  <em>no instructions yet — ask the coach to add cues.</em>
+                                )}
+                              </div>
+                              {ex.notes && (
+                                <div>
+                                  <strong>Notes:</strong> {ex.notes}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

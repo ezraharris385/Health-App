@@ -14,6 +14,7 @@ import type {
   CardioSession,
   CardioType,
   Exercise,
+  ExerciseTrackingType,
   PlanDay,
   PlanDayExercise,
   SessionSet,
@@ -46,6 +47,9 @@ function mapExercise(r: any): Exercise {
     equipment: r.equipment,
     instructions: r.instructions,
     notes: r.notes,
+    trackingType: (r.tracking_type ?? "weight_reps") as ExerciseTrackingType,
+    intensityRec: r.intensity_rec ?? "",
+    goalRec: r.goal_rec ?? "",
     createdAt: r.created_at,
   };
 }
@@ -81,6 +85,9 @@ function mapPlanDayExercise(r: any): PlanDayExercise {
     reps: r.reps,
     targetWeight: r.target_weight,
     restSeconds: r.rest_seconds,
+    targetSeconds: r.target_seconds ?? null,
+    targetDistanceM: r.target_distance_m ?? null,
+    targetCount: r.target_count ?? null,
     notes: r.notes,
     exerciseName: r.exercise_name,
   };
@@ -108,6 +115,8 @@ function mapSet(r: any): SessionSet {
     weight: r.weight,
     rpe: r.rpe,
     durationSeconds: r.duration_seconds,
+    distanceM: r.distance_m ?? null,
+    count: r.count ?? null,
     notes: r.notes,
     exerciseName: r.exercise_name,
   };
@@ -148,15 +157,19 @@ export interface WeekSchedule {
 export interface PerformancePoint {
   date: string;
   sets: number;
-  /** total volume = Σ reps × weight (bodyweight sets count 0) */
+  /** total volume = Σ reps × weight (0 for non weight_reps exercises) */
   volume: number;
   bestWeight: number | null;
   bestReps: number;
   /** the best set's timed work in seconds (e.g. plank holds), if any */
   bestDurationSeconds: number | null;
-  /** e.g. "100×5", "BW×12", or "BW×60s" for time-only sets */
+  /** the best set's distance in meters (distance-tracked work), if any */
+  bestDistanceM: number | null;
+  /** the best set's count (count-tracked work), if any */
+  bestCount: number | null;
+  /** e.g. "100×5", "BW×12", "60s", "1500 m", or "50" depending on tracking type */
   bestSet: string;
-  /** Epley estimated 1RM from the best weighted set */
+  /** Epley estimated 1RM from the best weighted set (weight_reps only) */
   est1RM: number | null;
 }
 export interface ExercisePerformance {
@@ -223,7 +236,113 @@ function normDurationSeconds(v: unknown): number | null {
   return seconds;
 }
 
-const CARDIO_TYPES: CardioType[] = ["run", "jog", "walk", "interval"];
+/** Meters covered for a distance-tracked set/target: >= 0, or null. */
+function normDistanceM(v: unknown, what = "distanceM"): number | null {
+  const n = optNum(v, what);
+  if (n === null) return null;
+  if (n < 0) throw new Error(`${what} must be >= 0`);
+  return Math.round(n * 100) / 100;
+}
+
+/** Plain count for a count-tracked set/target: integer >= 0, or null. */
+function normCount(v: unknown, what = "count"): number | null {
+  const n = optNum(v, what);
+  if (n === null) return null;
+  const c = Math.round(n);
+  if (c < 0) throw new Error(`${what} must be an integer >= 0`);
+  return c;
+}
+
+/** Target hold/work seconds for a plan-day exercise: integer 1..86400, or null. */
+function normTargetSeconds(v: unknown): number | null {
+  const n = optNum(v, "targetSeconds");
+  if (n === null) return null;
+  const s = Math.round(n);
+  if (s < 1 || s > 86400) throw new Error("targetSeconds must be between 1 and 86400");
+  return s;
+}
+
+/** Target weight for a plan-day exercise: >= 0, or null. */
+function normTargetWeight(v: unknown): number | null {
+  const n = optNum(v, "targetWeight");
+  if (n === null) return null;
+  if (n < 0) throw new Error("targetWeight must be >= 0");
+  return n;
+}
+
+/** Rest between sets for a plan-day exercise: integer seconds >= 0, or null. */
+function normRestSeconds(v: unknown): number | null {
+  const n = optNum(v, "restSeconds");
+  if (n === null) return null;
+  const s = Math.round(n);
+  if (s < 0) throw new Error("restSeconds must be >= 0");
+  return s;
+}
+
+/** Explicit step count (stepsRun/stepsWalked/steps): integer >= 0, or null. */
+function normSteps(v: unknown, what: string): number | null {
+  if (v === undefined || v === null || v === "") return null;
+  return Math.round(reqNum(v, what, 0));
+}
+
+/**
+ * A logged set must record actual work — a strictly positive measured value.
+ * Kept loose enough for any tracking type (weighted/bodyweight reps, a timed
+ * hold, a distance, or a plain count), but a value of 0 counts as no work: a
+ * bare weight with no reps, or a 0 m / 0-count / 0-rep set, is the empty set
+ * this guard rejects (weight only ever qualifies alongside reps or duration).
+ */
+function assertMeasured(
+  m: {
+    reps: number;
+    weight: number | null;
+    durationSeconds: number | null;
+    distanceM: number | null;
+    count: number | null;
+  },
+  label = "set",
+): void {
+  if (
+    m.reps > 0 ||
+    (m.durationSeconds ?? 0) > 0 ||
+    (m.distanceM ?? 0) > 0 ||
+    (m.count ?? 0) > 0
+  ) {
+    return;
+  }
+  throw new Error(
+    `${label}: a set must record real work — a positive reps, durationSeconds, distanceM, or count`,
+  );
+}
+
+const TRACKING_TYPES: ExerciseTrackingType[] = [
+  "weight_reps",
+  "reps",
+  "time",
+  "distance",
+  "count",
+];
+
+/** Validate a tracking type, defaulting to 'weight_reps' when absent. */
+function normTrackingType(v: unknown): ExerciseTrackingType {
+  if (v === undefined || v === null || v === "") return "weight_reps";
+  if (typeof v !== "string" || !TRACKING_TYPES.includes(v as ExerciseTrackingType)) {
+    throw new Error(`trackingType must be one of: ${TRACKING_TYPES.join(", ")}`);
+  }
+  return v as ExerciseTrackingType;
+}
+
+const CARDIO_TYPES: CardioType[] = [
+  "run",
+  "jog",
+  "walk",
+  "interval",
+  "hiit",
+  "cycling",
+  "rowing",
+  "elliptical",
+  "other",
+];
 
 // ---------------------------------------------------------------------------
 // Exercises
@@ -252,11 +371,16 @@ export function createExercise(input: {
   equipment?: unknown;
   instructions?: unknown;
   notes?: unknown;
+  trackingType?: unknown;
+  intensityRec?: unknown;
+  goalRec?: unknown;
 }): Exercise {
   const name = reqName(input.name, "Exercise name");
   const info = db
     .prepare(
-      "INSERT INTO exercises (name, muscle_groups, equipment, instructions, notes) VALUES (?, ?, ?, ?, ?)",
+      `INSERT INTO exercises
+         (name, muscle_groups, equipment, instructions, notes, tracking_type, intensity_rec, goal_rec)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       name,
@@ -264,6 +388,9 @@ export function createExercise(input: {
       optStr(input.equipment),
       optStr(input.instructions),
       optStr(input.notes),
+      normTrackingType(input.trackingType),
+      optStr(input.intensityRec),
+      optStr(input.goalRec),
     );
   return getExercise(Number(info.lastInsertRowid));
 }
@@ -276,17 +403,24 @@ export function updateExercise(
     equipment?: unknown;
     instructions?: unknown;
     notes?: unknown;
+    trackingType?: unknown;
+    intensityRec?: unknown;
+    goalRec?: unknown;
   },
 ): Exercise {
   const current = getExercise(id);
   db.prepare(
-    "UPDATE exercises SET name = ?, muscle_groups = ?, equipment = ?, instructions = ?, notes = ? WHERE id = ?",
+    `UPDATE exercises SET name = ?, muscle_groups = ?, equipment = ?, instructions = ?, notes = ?,
+       tracking_type = ?, intensity_rec = ?, goal_rec = ? WHERE id = ?`,
   ).run(
     patch.name !== undefined ? reqName(patch.name, "Exercise name") : current.name,
     patch.muscleGroups !== undefined ? optStr(patch.muscleGroups) : current.muscleGroups,
     patch.equipment !== undefined ? optStr(patch.equipment) : current.equipment,
     patch.instructions !== undefined ? optStr(patch.instructions) : current.instructions,
     patch.notes !== undefined ? optStr(patch.notes) : current.notes,
+    patch.trackingType !== undefined ? normTrackingType(patch.trackingType) : current.trackingType,
+    patch.intensityRec !== undefined ? optStr(patch.intensityRec) : current.intensityRec,
+    patch.goalRec !== undefined ? optStr(patch.goalRec) : current.goalRec,
     id,
   );
   return getExercise(id);
@@ -307,6 +441,9 @@ export function resolveExerciseId(ref: {
   muscleGroups?: unknown;
   equipment?: unknown;
   instructions?: unknown;
+  trackingType?: unknown;
+  intensityRec?: unknown;
+  goalRec?: unknown;
 }): number {
   if (ref.exerciseId !== undefined && ref.exerciseId !== null) {
     const id = reqNum(ref.exerciseId, "exerciseId", 1);
@@ -323,7 +460,33 @@ export function resolveExerciseId(ref: {
     muscleGroups: ref.muscleGroups,
     equipment: ref.equipment,
     instructions: ref.instructions,
+    trackingType: ref.trackingType,
+    intensityRec: ref.intensityRec,
+    goalRec: ref.goalRec,
   }).id;
+}
+
+/**
+ * Resolve an exercise reference (id or name) to an EXISTING id without ever
+ * creating one — throws notFound when the id/name has no match. Use this on
+ * read-only paths (e.g. performance queries) so a typo or novel name can't
+ * silently pollute the library.
+ */
+export function resolveExistingExerciseId(ref: {
+  exerciseId?: unknown;
+  exerciseName?: unknown;
+}): number {
+  if (ref.exerciseId !== undefined && ref.exerciseId !== null) {
+    const id = reqNum(ref.exerciseId, "exerciseId", 1);
+    getExercise(id); // throws if missing
+    return id;
+  }
+  const name = reqName(ref.exerciseName, "exerciseName (or exerciseId)");
+  const existing = db
+    .prepare("SELECT id FROM exercises WHERE LOWER(name) = LOWER(?) LIMIT 1")
+    .get(name) as { id: number } | undefined;
+  if (existing) return existing.id;
+  throw notFound(`Exercise "${name}"`);
 }
 
 // ---------------------------------------------------------------------------
@@ -378,10 +541,16 @@ export interface FullPlanInput {
       muscleGroups?: unknown;
       equipment?: unknown;
       instructions?: unknown;
+      trackingType?: unknown;
+      intensityRec?: unknown;
+      goalRec?: unknown;
       sets?: unknown;
       reps?: unknown;
       targetWeight?: unknown;
       restSeconds?: unknown;
+      targetSeconds?: unknown;
+      targetDistanceM?: unknown;
+      targetCount?: unknown;
       notes?: unknown;
     }[];
   }[];
@@ -416,16 +585,20 @@ export function createFullPlan(input: FullPlanInput): PlanFull {
         const exerciseId = resolveExerciseId(ex);
         db.prepare(
           `INSERT INTO plan_day_exercises
-             (plan_day_id, exercise_id, order_index, sets, reps, target_weight, rest_seconds, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             (plan_day_id, exercise_id, order_index, sets, reps, target_weight, rest_seconds,
+              target_seconds, target_distance_m, target_count, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           dayId,
           exerciseId,
           ei,
           ex.sets !== undefined ? reqNum(ex.sets, "sets", 1, 20) : 3,
           optStr(ex.reps, "8-12"),
-          optNum(ex.targetWeight, "targetWeight"),
-          optNum(ex.restSeconds, "restSeconds"),
+          normTargetWeight(ex.targetWeight),
+          normRestSeconds(ex.restSeconds),
+          normTargetSeconds(ex.targetSeconds),
+          normDistanceM(ex.targetDistanceM, "targetDistanceM"),
+          normCount(ex.targetCount, "targetCount"),
           optStr(ex.notes),
         );
       });
@@ -526,10 +699,16 @@ export function addPlanDayExercise(
     exerciseName?: unknown;
     muscleGroups?: unknown;
     instructions?: unknown;
+    trackingType?: unknown;
+    intensityRec?: unknown;
+    goalRec?: unknown;
     sets?: unknown;
     reps?: unknown;
     targetWeight?: unknown;
     restSeconds?: unknown;
+    targetSeconds?: unknown;
+    targetDistanceM?: unknown;
+    targetCount?: unknown;
     notes?: unknown;
   },
 ): PlanDayExercise {
@@ -544,8 +723,9 @@ export function addPlanDayExercise(
   const info = db
     .prepare(
       `INSERT INTO plan_day_exercises
-         (plan_day_id, exercise_id, order_index, sets, reps, target_weight, rest_seconds, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (plan_day_id, exercise_id, order_index, sets, reps, target_weight, rest_seconds,
+          target_seconds, target_distance_m, target_count, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       dayId,
@@ -553,8 +733,11 @@ export function addPlanDayExercise(
       maxOrder.m + 1,
       input.sets !== undefined ? reqNum(input.sets, "sets", 1, 20) : 3,
       optStr(input.reps, "8-12"),
-      optNum(input.targetWeight, "targetWeight"),
-      optNum(input.restSeconds, "restSeconds"),
+      normTargetWeight(input.targetWeight),
+      normRestSeconds(input.restSeconds),
+      normTargetSeconds(input.targetSeconds),
+      normDistanceM(input.targetDistanceM, "targetDistanceM"),
+      normCount(input.targetCount, "targetCount"),
       optStr(input.notes),
     );
   const row = db
@@ -573,18 +756,27 @@ export function updatePlanDayExercise(
     reps?: unknown;
     targetWeight?: unknown;
     restSeconds?: unknown;
+    targetSeconds?: unknown;
+    targetDistanceM?: unknown;
+    targetCount?: unknown;
     notes?: unknown;
   },
 ): PlanDayExercise {
   const row = db.prepare("SELECT * FROM plan_day_exercises WHERE id = ?").get(id) as any;
   if (!row) throw notFound(`Plan-day-exercise #${id}`);
   db.prepare(
-    "UPDATE plan_day_exercises SET sets = ?, reps = ?, target_weight = ?, rest_seconds = ?, notes = ? WHERE id = ?",
+    `UPDATE plan_day_exercises SET sets = ?, reps = ?, target_weight = ?, rest_seconds = ?,
+       target_seconds = ?, target_distance_m = ?, target_count = ?, notes = ? WHERE id = ?`,
   ).run(
     patch.sets !== undefined ? reqNum(patch.sets, "sets", 1, 20) : row.sets,
     patch.reps !== undefined ? optStr(patch.reps) : row.reps,
-    patch.targetWeight !== undefined ? optNum(patch.targetWeight, "targetWeight") : row.target_weight,
-    patch.restSeconds !== undefined ? optNum(patch.restSeconds, "restSeconds") : row.rest_seconds,
+    patch.targetWeight !== undefined ? normTargetWeight(patch.targetWeight) : row.target_weight,
+    patch.restSeconds !== undefined ? normRestSeconds(patch.restSeconds) : row.rest_seconds,
+    patch.targetSeconds !== undefined ? normTargetSeconds(patch.targetSeconds) : row.target_seconds,
+    patch.targetDistanceM !== undefined
+      ? normDistanceM(patch.targetDistanceM, "targetDistanceM")
+      : row.target_distance_m,
+    patch.targetCount !== undefined ? normCount(patch.targetCount, "targetCount") : row.target_count,
     patch.notes !== undefined ? optStr(patch.notes) : row.notes,
     id,
   );
@@ -671,12 +863,18 @@ export function createSession(input: {
 export interface FullSessionEntryInput {
   exerciseId?: unknown;
   exerciseName?: unknown;
+  trackingType?: unknown;
+  intensityRec?: unknown;
+  goalRec?: unknown;
   /** identical sets to record for this exercise (1-20, default 1) */
   sets?: unknown;
-  reps: unknown;
+  /** optional — a set only needs at least one measured field */
+  reps?: unknown;
   weight?: unknown;
   rpe?: unknown;
   durationSeconds?: unknown;
+  distanceM?: unknown;
+  count?: unknown;
   notes?: unknown;
 }
 
@@ -728,7 +926,10 @@ export function logFullSession(input: FullSessionInput): SessionFull {
       entry.sets !== undefined && entry.sets !== null && entry.sets !== ""
         ? Math.round(reqNum(entry.sets, `${label}.sets`, 1, 20))
         : 1;
-    const reps = Math.round(reqNum(entry.reps, `${label}.reps`, 0, 1000));
+    const reps =
+      entry.reps === undefined || entry.reps === null || entry.reps === ""
+        ? 0
+        : Math.round(reqNum(entry.reps, `${label}.reps`, 0, 1000));
     const weight = optNum(entry.weight, `${label}.weight`);
     if (weight !== null && weight < 0) throw new Error(`${label}.weight must be >= 0`);
     const rpe = optNum(entry.rpe, `${label}.rpe`);
@@ -736,10 +937,20 @@ export function logFullSession(input: FullSessionInput): SessionFull {
       throw new Error(`${label}.rpe must be between 1 and 10`);
     }
     const durationSeconds = normDurationSeconds(entry.durationSeconds);
-    if (reps === 0 && durationSeconds === null) {
-      throw new Error(`${label}: reps 0 is only allowed for timed work — provide durationSeconds`);
-    }
-    return { entry, sets, reps, weight, rpe, durationSeconds, notes: optStr(entry.notes) };
+    const distanceM = normDistanceM(entry.distanceM, `${label}.distanceM`);
+    const count = normCount(entry.count, `${label}.count`);
+    assertMeasured({ reps, weight, durationSeconds, distanceM, count }, label);
+    return {
+      entry,
+      sets,
+      reps,
+      weight,
+      rpe,
+      durationSeconds,
+      distanceM,
+      count,
+      notes: optStr(entry.notes),
+    };
   });
   const sessionId = db.transaction((): number => {
     const now = new Date().toISOString();
@@ -750,12 +961,23 @@ export function logFullSession(input: FullSessionInput): SessionFull {
       .run(date, planDayId, name, notes, now, now);
     const sid = Number(info.lastInsertRowid);
     const insertSet = db.prepare(
-      "INSERT INTO session_sets (session_id, exercise_id, set_number, reps, weight, rpe, duration_seconds, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO session_sets (session_id, exercise_id, set_number, reps, weight, rpe, duration_seconds, distance_m, count, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     for (const p of prepared) {
       const exerciseId = resolveExerciseId(p.entry);
       for (let setNumber = 1; setNumber <= p.sets; setNumber++) {
-        insertSet.run(sid, exerciseId, setNumber, p.reps, p.weight, p.rpe, p.durationSeconds, p.notes);
+        insertSet.run(
+          sid,
+          exerciseId,
+          setNumber,
+          p.reps,
+          p.weight,
+          p.rpe,
+          p.durationSeconds,
+          p.distanceM,
+          p.count,
+          p.notes,
+        );
       }
     }
     return sid;
@@ -796,21 +1018,29 @@ export function addSet(
     exerciseId?: unknown;
     exerciseName?: unknown;
     setNumber?: unknown;
-    reps: unknown;
+    reps?: unknown;
     weight?: unknown;
     rpe?: unknown;
     durationSeconds?: unknown;
+    distanceM?: unknown;
+    count?: unknown;
     notes?: unknown;
   },
 ): SessionSet {
   getSessionFull(sessionId); // existence check
   const exerciseId = resolveExerciseId(input);
-  const reps = reqNum(input.reps, "reps", 0, 1000);
+  const reps =
+    input.reps === undefined || input.reps === null || input.reps === ""
+      ? 0
+      : Math.round(reqNum(input.reps, "reps", 0, 1000));
   const weight = optNum(input.weight, "weight");
   if (weight !== null && weight < 0) throw new Error("weight must be >= 0");
   const rpe = optNum(input.rpe, "rpe");
   if (rpe !== null && (rpe < 1 || rpe > 10)) throw new Error("rpe must be between 1 and 10");
   const durationSeconds = normDurationSeconds(input.durationSeconds);
+  const distanceM = normDistanceM(input.distanceM);
+  const count = normCount(input.count);
+  assertMeasured({ reps, weight, durationSeconds, distanceM, count });
   const setNumber =
     input.setNumber !== undefined
       ? reqNum(input.setNumber, "setNumber", 1)
@@ -823,16 +1053,18 @@ export function addSet(
         ).c + 1);
   const info = db
     .prepare(
-      "INSERT INTO session_sets (session_id, exercise_id, set_number, reps, weight, rpe, duration_seconds, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO session_sets (session_id, exercise_id, set_number, reps, weight, rpe, duration_seconds, distance_m, count, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(
       sessionId,
       exerciseId,
       setNumber,
-      Math.round(reps),
+      reps,
       weight,
       rpe,
       durationSeconds,
+      distanceM,
+      count,
       optStr(input.notes),
     );
   const row = db
@@ -851,6 +1083,8 @@ export function updateSet(
     weight?: unknown;
     rpe?: unknown;
     durationSeconds?: unknown;
+    distanceM?: unknown;
+    count?: unknown;
     notes?: unknown;
     setNumber?: unknown;
   },
@@ -861,15 +1095,25 @@ export function updateSet(
   if (rpe !== null && (rpe < 1 || rpe > 10)) throw new Error("rpe must be between 1 and 10");
   const weight = patch.weight !== undefined ? optNum(patch.weight, "weight") : row.weight;
   if (weight !== null && weight < 0) throw new Error("weight must be >= 0");
-  db.prepare(
-    "UPDATE session_sets SET reps = ?, weight = ?, rpe = ?, duration_seconds = ?, notes = ?, set_number = ? WHERE id = ?",
-  ).run(
-    patch.reps !== undefined ? Math.round(reqNum(patch.reps, "reps", 0, 1000)) : row.reps,
-    weight,
-    rpe,
+  const reps =
+    patch.reps !== undefined ? Math.round(reqNum(patch.reps, "reps", 0, 1000)) : row.reps;
+  const durationSeconds =
     patch.durationSeconds !== undefined
       ? normDurationSeconds(patch.durationSeconds)
-      : row.duration_seconds,
+      : row.duration_seconds;
+  const distanceM =
+    patch.distanceM !== undefined ? normDistanceM(patch.distanceM) : row.distance_m ?? null;
+  const count = patch.count !== undefined ? normCount(patch.count) : row.count ?? null;
+  assertMeasured({ reps, weight, durationSeconds, distanceM, count });
+  db.prepare(
+    "UPDATE session_sets SET reps = ?, weight = ?, rpe = ?, duration_seconds = ?, distance_m = ?, count = ?, notes = ?, set_number = ? WHERE id = ?",
+  ).run(
+    reps,
+    weight,
+    rpe,
+    durationSeconds,
+    distanceM,
+    count,
     patch.notes !== undefined ? optStr(patch.notes) : row.notes,
     patch.setNumber !== undefined ? reqNum(patch.setNumber, "setNumber", 1) : row.set_number,
     id,
@@ -892,12 +1136,78 @@ export function deleteSet(id: number): void {
 // Performance history
 // ---------------------------------------------------------------------------
 
+interface PerfSet {
+  reps: number;
+  weight: number | null;
+  durationSeconds: number | null;
+  distanceM: number | null;
+  count: number | null;
+}
+
+/**
+ * Pick the "best" set of a day for the exercise's tracking type. Volume and 1RM
+ * are only meaningful for weight_reps; other types rank on their own measured
+ * field so getPerformance never assumes a weight is present.
+ */
+function bestSetFor(tracking: ExerciseTrackingType, sets: PerfSet[]): PerfSet {
+  let best = sets[0];
+  for (const s of sets) {
+    let better = false;
+    switch (tracking) {
+      case "reps":
+        better = s.reps > best.reps;
+        break;
+      case "time":
+        better = (s.durationSeconds ?? 0) > (best.durationSeconds ?? 0);
+        break;
+      case "distance":
+        better = (s.distanceM ?? 0) > (best.distanceM ?? 0);
+        break;
+      case "count":
+        better = (s.count ?? 0) > (best.count ?? 0);
+        break;
+      default: {
+        // weight_reps: heaviest wins; ties break on reps, then timed work.
+        const bw = best.weight ?? -1;
+        const sw = s.weight ?? -1;
+        better =
+          sw > bw ||
+          (sw === bw &&
+            (s.reps > best.reps ||
+              (s.reps === best.reps &&
+                (s.durationSeconds ?? 0) > (best.durationSeconds ?? 0))));
+      }
+    }
+    if (better) best = s;
+  }
+  return best;
+}
+
+function bestSetLabel(tracking: ExerciseTrackingType, best: PerfSet): string {
+  switch (tracking) {
+    case "reps":
+      return `${best.reps} reps`;
+    case "time":
+      return best.durationSeconds !== null ? `${best.durationSeconds}s` : `${best.reps} reps`;
+    case "distance":
+      return best.distanceM !== null ? `${best.distanceM} m` : `${best.reps} reps`;
+    case "count":
+      return best.count !== null ? `${best.count}` : `${best.reps} reps`;
+    default:
+      return `${best.weight !== null ? best.weight : "BW"}×${
+        best.reps === 0 && best.durationSeconds !== null ? `${best.durationSeconds}s` : best.reps
+      }`;
+  }
+}
+
 export function getPerformance(exerciseId: number, days = 180): ExercisePerformance {
   const exercise = getExercise(exerciseId);
+  const tracking = exercise.trackingType;
   const clamped = Math.min(730, Math.max(7, Math.round(days)));
   const rows = db
     .prepare(
-      `SELECT ss.reps, ss.weight, ss.duration_seconds, ws.date FROM session_sets ss
+      `SELECT ss.reps, ss.weight, ss.duration_seconds, ss.distance_m, ss.count, ws.date
+       FROM session_sets ss
        JOIN workout_sessions ws ON ws.id = ss.session_id
        WHERE ss.exercise_id = ? AND ws.date >= ?
        ORDER BY ws.date`,
@@ -906,39 +1216,33 @@ export function getPerformance(exerciseId: number, days = 180): ExercisePerforma
     reps: number;
     weight: number | null;
     duration_seconds: number | null;
+    distance_m: number | null;
+    count: number | null;
     date: string;
   }[];
 
-  const byDate = new Map<
-    string,
-    { reps: number; weight: number | null; durationSeconds: number | null }[]
-  >();
+  const byDate = new Map<string, PerfSet[]>();
   for (const r of rows) {
     const list = byDate.get(r.date) ?? [];
-    list.push({ reps: r.reps, weight: r.weight, durationSeconds: r.duration_seconds });
+    list.push({
+      reps: r.reps,
+      weight: r.weight,
+      durationSeconds: r.duration_seconds,
+      distanceM: r.distance_m,
+      count: r.count,
+    });
     byDate.set(r.date, list);
   }
 
   const points: PerformancePoint[] = [...byDate.entries()].map(([date, sets]) => {
+    // Volume (Σ reps × weight) and 1RM only apply to weight_reps tracking.
     let volume = 0;
-    let best = sets[0];
-    for (const s of sets) {
-      volume += s.reps * (s.weight ?? 0);
-      const bw = best.weight ?? -1;
-      const sw = s.weight ?? -1;
-      // Heaviest set wins; ties break on reps, then on timed work (planks).
-      if (
-        sw > bw ||
-        (sw === bw &&
-          (s.reps > best.reps ||
-            (s.reps === best.reps &&
-              (s.durationSeconds ?? 0) > (best.durationSeconds ?? 0))))
-      ) {
-        best = s;
-      }
+    if (tracking === "weight_reps") {
+      for (const s of sets) volume += s.reps * (s.weight ?? 0);
     }
+    const best = bestSetFor(tracking, sets);
     const est1RM =
-      best.weight !== null && best.reps > 0
+      tracking === "weight_reps" && best.weight !== null && best.reps > 0
         ? Math.round(best.weight * (1 + best.reps / 30) * 10) / 10
         : null;
     return {
@@ -948,11 +1252,9 @@ export function getPerformance(exerciseId: number, days = 180): ExercisePerforma
       bestWeight: best.weight,
       bestReps: best.reps,
       bestDurationSeconds: best.durationSeconds,
-      bestSet: `${best.weight !== null ? best.weight : "BW"}×${
-        best.reps === 0 && best.durationSeconds !== null
-          ? `${best.durationSeconds}s`
-          : best.reps
-      }`,
+      bestDistanceM: best.distanceM,
+      bestCount: best.count,
+      bestSet: bestSetLabel(tracking, best),
       est1RM,
     };
   });
@@ -984,13 +1286,22 @@ export function cardioTotalSteps(c: CardioSession): number {
   return c.steps ?? (c.estimatedStepsRun ?? 0) + (c.estimatedStepsWalked ?? 0);
 }
 
+/** Optional non-negative distance/duration that treats absent as 0. */
+function optAmount(v: unknown, what: string, max: number): number {
+  if (v === undefined || v === null || v === "") return 0;
+  return reqNum(v, what, 0, max);
+}
+
 export function createCardio(input: {
   date?: unknown;
   type: unknown;
-  distanceKm: unknown;
-  durationMinutes: unknown;
+  activityLabel?: unknown;
+  distanceKm?: unknown;
+  durationMinutes?: unknown;
   intensity?: unknown;
   steps?: unknown;
+  stepsRun?: unknown;
+  stepsWalked?: unknown;
   report?: unknown;
   notes?: unknown;
 }): CardioSession {
@@ -999,8 +1310,10 @@ export function createCardio(input: {
     throw new Error(`type must be one of: ${CARDIO_TYPES.join(", ")}`);
   }
   const date = normDate(input.date);
-  const distanceKm = reqNum(input.distanceKm, "distanceKm", 0, 500);
-  const durationMinutes = reqNum(input.durationMinutes, "durationMinutes", 0, 1440);
+  // Distance & duration are both optional (0 allowed) so a steps-only or
+  // duration-only (e.g. HIIT) session is valid.
+  const distanceKm = optAmount(input.distanceKm, "distanceKm", 500);
+  const durationMinutes = optAmount(input.durationMinutes, "durationMinutes", 1440);
   const intensity =
     input.intensity !== undefined && input.intensity !== null && input.intensity !== ""
       ? Math.round(reqNum(input.intensity, "intensity", 1, 10))
@@ -1009,22 +1322,35 @@ export function createCardio(input: {
   if (input.steps !== undefined && input.steps !== null && input.steps !== "") {
     steps = Math.round(reqNum(input.steps, "steps", 0));
   }
-  const est = estimateSteps(type, distanceKm);
+  const stepsRun = normSteps(input.stepsRun, "stepsRun");
+  const stepsWalked = normSteps(input.stepsWalked, "stepsWalked");
+  // Explicit run/walk counts win; otherwise auto-estimate from distance for
+  // footfall types (estimateSteps returns 0/0 for the others without throwing).
+  const auto = estimateSteps(type, distanceKm);
+  const estRun = stepsRun !== null ? stepsRun : auto.run;
+  const estWalked = stepsWalked !== null ? stepsWalked : auto.walked;
+  const anySteps = (steps ?? 0) > 0 || estRun > 0 || estWalked > 0;
+  if (!(distanceKm > 0 || durationMinutes > 0 || anySteps)) {
+    throw new Error(
+      "a cardio session needs at least one of: distance, duration, steps, stepsRun, or stepsWalked",
+    );
+  }
   const info = db
     .prepare(
       `INSERT INTO cardio_sessions
-         (date, type, distance_km, duration_minutes, intensity, steps, estimated_steps_run, estimated_steps_walked, report, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (date, type, activity_label, distance_km, duration_minutes, intensity, steps, estimated_steps_run, estimated_steps_walked, report, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       date,
       type,
+      optStr(input.activityLabel),
       distanceKm,
       durationMinutes,
       intensity,
       steps,
-      est.run,
-      est.walked,
+      estRun,
+      estWalked,
       optStr(input.report),
       optStr(input.notes),
     );
@@ -1036,10 +1362,13 @@ export function updateCardio(
   patch: {
     date?: unknown;
     type?: unknown;
+    activityLabel?: unknown;
     distanceKm?: unknown;
     durationMinutes?: unknown;
     intensity?: unknown;
     steps?: unknown;
+    stepsRun?: unknown;
+    stepsWalked?: unknown;
     report?: unknown;
     notes?: unknown;
   },
@@ -1051,17 +1380,19 @@ export function updateCardio(
   }
   const distanceKm =
     patch.distanceKm !== undefined
-      ? reqNum(patch.distanceKm, "distanceKm", 0, 500)
+      ? optAmount(patch.distanceKm, "distanceKm", 500)
       : current.distanceKm;
   const durationMinutes =
     patch.durationMinutes !== undefined
-      ? reqNum(patch.durationMinutes, "durationMinutes", 0, 1440)
+      ? optAmount(patch.durationMinutes, "durationMinutes", 1440)
       : current.durationMinutes;
+  // Mirror createCardio: an empty/null intensity is not a value to validate —
+  // keep the current one (create defaults to 5) instead of throwing on "".
   const intensity =
-    patch.intensity !== undefined
+    patch.intensity !== undefined && patch.intensity !== null && patch.intensity !== ""
       ? Math.round(reqNum(patch.intensity, "intensity", 1, 10))
       : current.intensity;
-  // steps: undefined = keep, null/"" = clear back to estimates, number = manual override
+  // steps: undefined = keep, null/"" = clear the manual override, number = override
   let steps: number | null = current.steps;
   if (patch.steps !== undefined) {
     steps =
@@ -1069,20 +1400,49 @@ export function updateCardio(
         ? null
         : Math.round(reqNum(patch.steps, "steps", 0));
   }
-  const est = estimateSteps(type, distanceKm);
+  // estimated_steps_run/walked: an explicit stepsRun/stepsWalked wins; else
+  // re-estimate from distance when type/distance changed; else keep as-is so an
+  // unrelated edit (e.g. attaching a report) doesn't wipe hand-entered counts.
+  const auto = estimateSteps(type, distanceKm);
+  const recompute = patch.type !== undefined || patch.distanceKm !== undefined;
+  let estRun = current.estimatedStepsRun ?? 0;
+  let estWalked = current.estimatedStepsWalked ?? 0;
+  if (patch.stepsRun !== undefined) {
+    estRun =
+      patch.stepsRun === null || patch.stepsRun === ""
+        ? auto.run
+        : Math.round(reqNum(patch.stepsRun, "stepsRun", 0));
+  } else if (recompute) {
+    estRun = auto.run;
+  }
+  if (patch.stepsWalked !== undefined) {
+    estWalked =
+      patch.stepsWalked === null || patch.stepsWalked === ""
+        ? auto.walked
+        : Math.round(reqNum(patch.stepsWalked, "stepsWalked", 0));
+  } else if (recompute) {
+    estWalked = auto.walked;
+  }
+  const anySteps = (steps ?? 0) > 0 || estRun > 0 || estWalked > 0;
+  if (!(distanceKm > 0 || durationMinutes > 0 || anySteps)) {
+    throw new Error(
+      "a cardio session needs at least one of: distance, duration, steps, stepsRun, or stepsWalked",
+    );
+  }
   db.prepare(
-    `UPDATE cardio_sessions SET date = ?, type = ?, distance_km = ?, duration_minutes = ?,
+    `UPDATE cardio_sessions SET date = ?, type = ?, activity_label = ?, distance_km = ?, duration_minutes = ?,
        intensity = ?, steps = ?, estimated_steps_run = ?, estimated_steps_walked = ?, report = ?, notes = ?
      WHERE id = ?`,
   ).run(
     patch.date !== undefined ? normDate(patch.date) : current.date,
     type,
+    patch.activityLabel !== undefined ? optStr(patch.activityLabel) : current.activityLabel,
     distanceKm,
     durationMinutes,
     intensity,
     steps,
-    est.run,
-    est.walked,
+    estRun,
+    estWalked,
     patch.report !== undefined ? optStr(patch.report) : current.report,
     patch.notes !== undefined ? optStr(patch.notes) : current.notes,
     id,

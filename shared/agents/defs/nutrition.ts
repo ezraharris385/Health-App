@@ -86,7 +86,7 @@ const MACRO_SCHEMA_PROPS = {
   sodiumMg: { type: "number" },
   micros: {
     type: "object",
-    description: `Micronutrients per serving keyed by nutrient key. Valid keys: ${NUTRIENT_KEYS.filter((k) => k !== "fiber_g").join(", ")}. Put fiber in the fiberG field, not here. For common/public foods fill every micro you know a real value for.`,
+    description: `Micronutrients per serving keyed by nutrient key. Valid keys: ${NUTRIENT_KEYS.filter((k) => k !== "fiber_g").join(", ")}. ALWAYS fill EVERY key you know a realistic value for, estimated from the food's general nutritional profile scaled to this serving size — never leave this empty for a recognizable food. Put fiber in the fiberG field, not here.`,
     additionalProperties: { type: "number" },
   },
 } as const;
@@ -99,7 +99,7 @@ export const nutritionAgent: AgentDef = {
 Every turn you receive two auto-injected inputs: your saved memory notes about the user, and a <context> snapshot of today's data (goals, consumed and remaining macros, water, meals logged, latest weight, profile). Use them before calling tools — the snapshot already answers most "where am I today?" questions; use get_daily_summary or get_history for other dates or details.
 
 How to work:
-- Read before you write. Always search_foods before create_food to avoid duplicates. When a common, publicly known item is missing (e.g. "banana", "Mountain Dew 12oz", "large egg"), create it yourself: fill serving size, calories, all macros AND every micronutrient you know a realistic value for (USDA-typical per-serving values), with source 'ai'. Never leave micros empty for foods that clearly contain them, and never invent values for obscure branded items — ask instead.
+- Read before you write. Always search_foods before create_food to avoid duplicates. When a common, publicly known item is missing (e.g. "banana", "Mountain Dew 12oz", "large egg", "chicken breast 100g"), create it yourself and ALWAYS estimate a COMPLETE nutrition profile from the food's general nutritional makeup scaled to the serving size: serving size, calories, every macro (protein/carbs/fat/fiber/sugar/sodium) AND the full micronutrient map — fill every vitamin and mineral key you know a realistic value for (USDA-typical per-serving values), with source 'ai'. Never leave micros empty for a recognizable food that clearly contains them: a banana carries potassium, vitamin B6 and vitamin C; a large egg carries vitamin B12, vitamin A, riboflavin and selenium; leafy greens carry vitamin K, folate and magnesium; and so on. Only for a genuinely obscure branded item with no public profile should you ask the user for label data instead of estimating.
 - When the user says they ate something, log it (log_food) with sensible servings and meal, then confirm briefly with concrete numbers ("Logged 2 x Large egg at breakfast — +143 kcal, 13g protein; 1,240 kcal remaining").
 - When recommending what to eat, work from what is REMAINING today (goal minus consumed) and suggest specific foods and portions that fit the remaining calories and macros — favor protein when protein is behind.
 - To set goals: derive calorie needs from the profile (Mifflin-St Jeor BMR x activity factor), adjust for the user's goal statement (roughly -500 kcal/day for ~1 lb/week loss, +250-500 for lean gain), set protein ~1.6-2.2 g/kg bodyweight, fat ~25-30% of calories, carbs the remainder. Show your math, confirm with the user, then persist with set_goals.
@@ -132,7 +132,7 @@ Tone: a genuinely helpful, evidence-based coach. Concrete numbers, specific food
     {
       name: "create_food",
       description:
-        "Create a food in the library. For common/public items (e.g. 'banana', 'Mountain Dew 12oz can', 'chicken breast 100g') fill calories, macros AND micronutrients from your own nutrition knowledge (USDA-typical values) — do not ask the user for label data — and it will be saved with source 'ai'. Amounts are per one serving.",
+        "Create a food in the library. ALWAYS estimate a COMPLETE profile from the food's general nutritional makeup scaled to the given serving size: calories, all macros (protein/carbs/fat/fiber/sugar/sodium) AND the full micronutrient map — fill every vitamin/mineral key you know a realistic per-serving value for (USDA-typical). Never leave micros empty for a recognizable food. Do not ask the user for label data on common/public items (e.g. 'banana', 'Mountain Dew 12oz can', 'chicken breast 100g'); it is saved with source 'ai'. Amounts are per one serving.",
       input_schema: {
         type: "object",
         properties: {

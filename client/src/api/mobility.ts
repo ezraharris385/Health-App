@@ -1,5 +1,6 @@
 import { http } from "./http";
 import type {
+  MobilityAnimKind,
   MobilityAssessment,
   MobilityDaySummary,
   MobilityKind,
@@ -33,6 +34,10 @@ export interface StretchInput {
   targetAreas?: string;
   instructions?: string;
   defaultHoldSeconds?: number | null;
+  goal?: string;
+  focus?: string;
+  feelWhere?: string;
+  animKind?: MobilityAnimKind;
   notes?: string;
 }
 

@@ -56,6 +56,19 @@ export interface WeightHistoryResponse {
   weightUnit: "lb" | "kg";
 }
 
+/** Macros contributed by taken supplements on a date (already inside the day's
+ *  totals — surfaced for a breakdown line, not re-added). */
+export interface SupplementMacroContribution {
+  date: string;
+  count: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  sugarG: number;
+  sodiumMg: number;
+}
+
 export const nutritionApi = {
   // Food library
   foods: (q?: string) =>
@@ -68,6 +81,8 @@ export const nutritionApi = {
   // Daily summary + food log
   summary: (date: string) =>
     http.get<DailyNutritionSummary>(`/api/nutrition/summary?date=${date}`),
+  supplementMacros: (date: string) =>
+    http.get<SupplementMacroContribution>(`/api/nutrition/supplement-macros?date=${date}`),
   logFood: (input: { date: string; foodId: number; servings: number; meal: MealType }) =>
     http.post<FoodLog>("/api/nutrition/log", input),
   deleteLog: (id: number) => http.del<{ ok: boolean }>(`/api/nutrition/log/${id}`),

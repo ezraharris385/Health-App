@@ -25,6 +25,13 @@ export interface SupplementInput {
   name: string;
   nutrients: MicroMap;
   notes?: string;
+  /** Per-dose macros — count toward Nutrition calories/macros on taken days. */
+  calories?: number;
+  proteinG?: number;
+  carbsG?: number;
+  fatG?: number;
+  sugarG?: number;
+  sodiumMg?: number;
 }
 
 export const vitaminsApi = {

@@ -9,6 +9,7 @@ import type { AgentDef, ToolDef } from "../framework";
 import { todayStr } from "../../data/db";
 import { getMobilityDaySummary } from "../../data/summaries";
 import {
+  ANIM_KINDS,
   createAssessment,
   createMetric,
   createRoutine,
@@ -89,7 +90,7 @@ const tools: ToolDef[] = [
   {
     name: "create_stretch",
     description:
-      "Add a stretch, yoga pose, or posture drill to the bank. Always fill `instructions` with concise form cues (setup, execution, common mistakes) and `targetAreas` (comma-separated, e.g. 'hamstrings, hips') — the user reads them from the bank and you quote them when coaching form.",
+      "Add a stretch, yoga pose, or posture drill to the bank. Always fill `instructions` with concise form cues (setup, execution, common mistakes) and `targetAreas` (comma-separated, e.g. 'hamstrings, hips'). ALSO fill the coaching fields the user sees on the pose card: `goal` (what it's for), `focus` (the primary theme/area to focus on), `feelWhere` (where they should feel the stretch), and pick the `animKind` that best matches the movement so the on-screen figure animates fittingly.",
     input_schema: {
       type: "object",
       properties: {
@@ -105,6 +106,21 @@ const tools: ToolDef[] = [
           type: ["number", "null"],
           description: "Typical hold in seconds (positive integer), or null",
         },
+        goal: {
+          type: "string",
+          description: "What the pose is for, e.g. 'loosen tight hamstrings before running'",
+        },
+        focus: { type: "string", description: "Primary focus area/theme, e.g. 'posterior chain'" },
+        feelWhere: {
+          type: "string",
+          description: "Where you should feel it, e.g. 'back of the thighs, behind the knees'",
+        },
+        animKind: {
+          type: "string",
+          enum: ANIM_KINDS,
+          description:
+            "Illustrative animation; pick the closest match to the movement. Default 'none' (a neutral standing figure).",
+        },
         notes: { type: "string" },
       },
       required: ["name"],
@@ -114,7 +130,7 @@ const tools: ToolDef[] = [
   {
     name: "update_stretch",
     description:
-      "Update a bank stretch by id: rename, change category (stretch/yoga/posture), edit target areas, instructions, default hold seconds (null clears), or notes. Only the fields you pass change.",
+      "Update a bank stretch by id: rename, change category (stretch/yoga/posture), edit target areas, instructions, default hold seconds (null clears), the coaching fields goal/focus/feelWhere, the animKind, or notes. Only the fields you pass change.",
     input_schema: {
       type: "object",
       properties: {
@@ -124,6 +140,14 @@ const tools: ToolDef[] = [
         targetAreas: { type: "string" },
         instructions: { type: "string" },
         defaultHoldSeconds: { type: ["number", "null"] },
+        goal: { type: "string", description: "What the pose is for" },
+        focus: { type: "string", description: "Primary focus area/theme" },
+        feelWhere: { type: "string", description: "Where you should feel it" },
+        animKind: {
+          type: "string",
+          enum: ANIM_KINDS,
+          description: "Illustrative animation matching the movement",
+        },
         notes: { type: "string" },
       },
       required: ["id"],
@@ -169,7 +193,7 @@ const tools: ToolDef[] = [
   {
     name: "create_full_routine",
     description:
-      "Create a COMPLETE mobility routine in one call: the routine plus its ordered items referencing bank stretches (item order = array order). Every stretchId must exist — call list_stretches first and create_stretch for anything missing. Use this whenever the user asks for a routine (e.g. 'morning hip opener', 'desk posture reset').",
+      "Create a COMPLETE mobility routine in one call: the routine plus its ordered items referencing bank stretches (item order = array order). Every stretchId must exist — call list_stretches first and create_stretch for anything missing. When you create those poses, fill their goal / focus / feelWhere and choose a fitting animKind so they show up richly in the bank and in the Follow-mode player. Use this whenever the user asks for a routine (e.g. 'morning hip opener', 'desk posture reset').",
     input_schema: {
       type: "object",
       properties: {
@@ -447,7 +471,7 @@ export const mobilityAgent: AgentDef = {
 How you work:
 - Every turn you receive an auto-injected <context> snapshot of today's mobility data plus your saved memory notes about the user. Use both before asking questions the data already answers.
 - Read before you write: call list_stretches / list_routines / list_metrics / get_today_summary to see current state before creating or editing anything. Never create duplicate stretches or metrics.
-- When the user asks for a routine, build it in ONE create_full_routine call — routine plus ordered items with hold times, reps, and per-side flags. Create any missing stretches first with real form cues in their instructions field, and quote those cues when coaching.
+- When the user asks for a routine, build it in ONE create_full_routine call — routine plus ordered items with hold times, reps, and per-side flags. Create any missing stretches first with real form cues in their instructions field, and quote those cues when coaching. On every pose you create, also fill the coaching fields the user reads on the pose card and in Follow mode: goal (what it's for), focus (what to focus on), feelWhere (where they should feel it), and choose the animKind that best matches the movement (reach_up, forward_fold, twist, lunge, hold, side_bend, cat_cow, neck_roll, or none).
 - After logging anything, confirm concretely what was recorded ("Logged 20 min yoga, feel 4/5"). Confirm before destructive or sweeping changes (replacing a routine's items, archiving, deactivating a metric, any delete_* tool); prefer archiving routines and deactivating metrics over deleting. When something was mis-logged (duplicate stretch, double-logged session, wrong assessment score), delete it with the matching delete_* tool after the user confirms — for a wrong assessment, delete_assessment then re-log the correct score.
 - ALWAYS ask for a brief post-session qualitative report ("How did it feel? Anything tight or painful?") and store it on the session via log_session or update_session — then actually use get_recent_reports to spot recurring tightness, pain flags, and wins.
 - Metrics are direction-aware: interpret trends with get_metric_trend, where a falling lower_better score (less stiffness) is improvement. Encourage a quick 1-10 rating on a consistent schedule so the trend lines mean something.

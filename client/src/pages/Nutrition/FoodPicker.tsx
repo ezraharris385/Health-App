@@ -26,7 +26,13 @@ const EMPTY_FORM = {
 // so it isn't double counted by the vitamins coverage math.
 const MICRO_DEFS = NUTRIENTS.filter((n) => n.key !== "fiber_g");
 
-export function FoodPicker(props: { date: string; onLogged: () => void; reloadKey?: number }) {
+export function FoodPicker(props: {
+  date: string;
+  onLogged: () => void;
+  reloadKey?: number;
+  /** Stage a ready message for the Nutrition coach (pre-fills the draft card). */
+  onAskCoach?: (message: string) => void;
+}) {
   const [foods, setFoods] = useState<Food[]>([]);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | "">("");
@@ -149,6 +155,24 @@ export function FoodPicker(props: { date: string; onLogged: () => void; reloadKe
 
   const setF = (key: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [key]: e.target.value });
+
+  // Build a ready message and hand it to the coach draft card — does NOT call
+  // the API here; the user reviews and sends it themselves.
+  function askCoach() {
+    const name = form.name.trim();
+    if (!name) {
+      setError("Enter a food name first, then ask the coach to fill it in");
+      return;
+    }
+    const size = form.servingSize.trim() || "1";
+    const unit = form.servingUnit.trim() || "serving";
+    const brand = form.brand.trim();
+    const label = `${name}${brand ? ` (${brand})` : ""}, ${size} ${unit}`;
+    setError(null);
+    props.onAskCoach?.(
+      `Add "${label}" to my food library — estimate full calories, macros, and micronutrients from its general nutrition profile.`,
+    );
+  }
 
   const microsFilled = Object.values(micros).filter((v) => v.trim() !== "").length;
 
@@ -314,9 +338,14 @@ export function FoodPicker(props: { date: string; onLogged: () => void; reloadKe
             <button className="btn primary" onClick={createFood} disabled={busy}>
               Create food
             </button>
+            {props.onAskCoach && (
+              <button className="btn" onClick={askCoach} disabled={busy}>
+                Ask the coach to fill this in
+              </button>
+            )}
             <span style={{ fontSize: 12, color: "var(--muted)" }}>
-              Tip: ask the assistant to create common foods — it fills macros and micronutrients
-              automatically.
+              Enter a name (and serving) then let the coach estimate full macros and
+              micronutrients — or fill the fields in yourself.
             </span>
           </div>
         </div>

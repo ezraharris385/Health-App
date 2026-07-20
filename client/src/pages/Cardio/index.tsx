@@ -31,11 +31,12 @@ export default function CardioPage() {
   }, [reload]);
 
   const weekStats = useMemo(() => {
-    if (!week) return { count: 0, distanceKm: 0, steps: 0 };
+    if (!week) return { count: 0, distanceKm: 0, minutes: 0, steps: 0 };
     const all = week.days.flatMap((d) => d.cardio);
     return {
       count: all.length,
       distanceKm: all.reduce((a, c) => a + c.distanceKm, 0),
+      minutes: all.reduce((a, c) => a + c.durationMinutes, 0),
       steps: all.reduce((a, c) => a + cardioTotalSteps(c), 0),
     };
   }, [week]);
@@ -46,16 +47,23 @@ export default function CardioPage() {
     <div>
       <h1 className="page-title">Cardio</h1>
       <p className="page-sub">
-        Runs, jogs, walks, and intervals — distance, steps, and how they felt.
+        Runs, walks, intervals, HIIT, cycling and more — by distance, duration, or steps.
       </p>
       {error && <p className="error-text">{error}</p>}
 
-      <div className="grid cols-3">
-        <StatTile label="Cardio sessions this week" value={weekStats.count} />
-        <StatTile label="Distance this week" value={fmtMiles(weekStats.distanceKm, 1)} />
+      <div className="grid cols-4">
+        <StatTile label="Sessions this week" value={weekStats.count} />
+        <StatTile
+          label="Distance this week"
+          value={weekStats.distanceKm > 0 ? fmtMiles(weekStats.distanceKm, 1) : "—"}
+        />
+        <StatTile
+          label="Active minutes"
+          value={weekStats.minutes > 0 ? Math.round(weekStats.minutes).toLocaleString() : "—"}
+        />
         <StatTile
           label="Steps this week"
-          value={weekStats.steps.toLocaleString()}
+          value={weekStats.steps > 0 ? weekStats.steps.toLocaleString() : "—"}
           delta="manual + estimated"
         />
       </div>

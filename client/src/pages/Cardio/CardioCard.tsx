@@ -1,45 +1,75 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { CardioSession, CardioType } from "@shared/types";
 import { todayStr } from "../../api/http";
-import { cardioTotalSteps, workoutApi } from "../../api/workout";
+import { cardioTotalSteps, workoutApi, type CardioInput } from "../../api/workout";
 import { kmFromMi, miFromKm } from "../../units";
+import {
+  CARDIO_TYPES,
+  CARDIO_TYPE_LABEL,
+  cardioActivityName,
+} from "./util";
 
-const TYPES: CardioType[] = ["run", "jog", "walk", "interval"];
+type Mode = "distance" | "steps";
 
-/** Cardio log: form (auto step estimation with manual override) + recent history. */
+/** Parse a text input into a non-negative number, or null when blank/invalid. */
+function num(v: string): number | null {
+  if (v.trim() === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Cardio log: an activity-type picker (9 types + free-text label for "other"),
+ * two entry modes — distance/duration (miles in, km on the wire) and steps-only
+ * (no distance/duration needed) — plus a detail-on-tap history table.
+ */
 export function CardioCard(props: { cardio: CardioSession[]; onChange: () => void }) {
   const { cardio, onChange } = props;
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [mode, setMode] = useState<Mode>("distance");
   const [date, setDate] = useState(todayStr());
   const [type, setType] = useState<CardioType>("run");
+  const [activityLabel, setActivityLabel] = useState("");
   const [distance, setDistance] = useState("");
   const [duration, setDuration] = useState("");
   const [intensity, setIntensity] = useState("5");
-  const [stepsOverride, setStepsOverride] = useState("");
+  const [stepsTotal, setStepsTotal] = useState("");
+  const [stepsRun, setStepsRun] = useState("");
+  const [stepsWalked, setStepsWalked] = useState("");
   const [report, setReport] = useState("");
+  const [detailId, setDetailId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function resetForm() {
     setEditingId(null);
+    setMode("distance");
     setDate(todayStr());
     setType("run");
+    setActivityLabel("");
     setDistance("");
     setDuration("");
     setIntensity("5");
-    setStepsOverride("");
+    setStepsTotal("");
+    setStepsRun("");
+    setStepsWalked("");
     setReport("");
   }
 
   function loadForEdit(c: CardioSession) {
+    const distanceMode = c.distanceKm > 0 || c.durationMinutes > 0;
     setEditingId(c.id);
+    setMode(distanceMode ? "distance" : "steps");
     setDate(c.date);
     setType(c.type);
+    setActivityLabel(c.activityLabel);
     // Stored canonical km -> shown/edited in miles.
-    setDistance(String(Math.round(miFromKm(c.distanceKm) * 100) / 100));
-    setDuration(String(c.durationMinutes));
+    setDistance(c.distanceKm > 0 ? String(Math.round(miFromKm(c.distanceKm) * 100) / 100) : "");
+    setDuration(c.durationMinutes > 0 ? String(Math.round(c.durationMinutes)) : "");
     setIntensity(String(c.intensity));
-    setStepsOverride(c.steps === null ? "" : String(c.steps));
+    setStepsTotal(c.steps === null ? "" : String(c.steps));
+    setStepsRun(c.estimatedStepsRun ? String(c.estimatedStepsRun) : "");
+    setStepsWalked(c.estimatedStepsWalked ? String(c.estimatedStepsWalked) : "");
     setReport(c.report);
   }
 
@@ -47,26 +77,50 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
     setBusy(true);
     setError(null);
     try {
-      const input = {
+      const base: CardioInput = {
         date,
         type,
-        // UI enters miles; convert to canonical km at the edge before sending.
-        distanceKm: kmFromMi(Number(distance)),
-        durationMinutes: Number(duration),
+        // Only 'other' carries a free-text label; clear it for known types.
+        activityLabel: type === "other" ? activityLabel.trim() : "",
         intensity: Number(intensity),
-        steps: stepsOverride === "" ? null : Number(stepsOverride),
         report,
       };
-      if (!Number.isFinite(input.distanceKm) || distance === "") {
-        throw new Error("Distance (mi) is required");
-      }
-      if (!Number.isFinite(input.durationMinutes) || duration === "") {
-        throw new Error("Duration (min) is required");
+      let input: CardioInput;
+      if (mode === "distance") {
+        const mi = num(distance);
+        const mins = num(duration);
+        const stepsOverride = num(stepsTotal);
+        if (mi === null && mins === null && stepsOverride === null) {
+          throw new Error("Enter distance (mi), duration (min), or a step count.");
+        }
+        input = {
+          ...base,
+          // UI enters miles; convert to canonical km at the edge before sending.
+          distanceKm: mi === null ? 0 : kmFromMi(mi),
+          durationMinutes: mins === null ? 0 : mins,
+          steps: stepsOverride,
+        };
+      } else {
+        const run = num(stepsRun);
+        const walked = num(stepsWalked);
+        const total = num(stepsTotal);
+        if ((run ?? 0) <= 0 && (walked ?? 0) <= 0 && (total ?? 0) <= 0) {
+          throw new Error("Enter steps while running, steps while walking, or a total.");
+        }
+        // Steps-only: no distance/duration. Explicit split + optional total.
+        input = {
+          ...base,
+          distanceKm: 0,
+          durationMinutes: 0,
+          stepsRun: run,
+          stepsWalked: walked,
+          steps: total,
+        };
       }
       if (editingId !== null) {
         await workoutApi.updateCardio(editingId, input);
       } else {
-        await workoutApi.createCardio({ ...input, steps: input.steps ?? undefined });
+        await workoutApi.createCardio(input);
       }
       resetForm();
       onChange();
@@ -83,6 +137,7 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
     try {
       await workoutApi.deleteCardio(id);
       if (editingId === id) resetForm();
+      if (detailId === id) setDetailId(null);
       onChange();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
@@ -96,52 +151,173 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
   return (
     <div className="card">
       <div className="row between">
-        <h3>Cardio — runs &amp; walks</h3>
+        <h3>Cardio log</h3>
         {editingId !== null && (
           <span className="chip" style={{ color: "var(--status-warning)" }}>
             editing #{editingId}
           </span>
         )}
       </div>
+
       <div className="stack">
         <div className="row wrap">
           <label className="field" style={{ width: 130 }}>
             Date
             <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
-          <label className="field" style={{ width: 100 }}>
-            Type
+          <label className="field" style={{ width: 120 }}>
+            Activity
             <select className="input" value={type} onChange={(e) => setType(e.target.value as CardioType)}>
-              {TYPES.map((t) => (
+              {CARDIO_TYPES.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {CARDIO_TYPE_LABEL[t]}
                 </option>
               ))}
             </select>
           </label>
-          <label className="field" style={{ width: 96 }}>
-            Distance (mi)
-            <input className="input" type="number" step="0.1" value={distance} onChange={(e) => setDistance(e.target.value)} />
-          </label>
-          <label className="field" style={{ width: 96 }}>
-            Duration (min)
-            <input className="input" type="number" value={duration} onChange={(e) => setDuration(e.target.value)} />
-          </label>
-          <label className="field" style={{ width: 96 }}>
-            Intensity 1-10
-            <input className="input" type="number" min={1} max={10} value={intensity} onChange={(e) => setIntensity(e.target.value)} />
-          </label>
-          <label className="field" style={{ width: 120 }} title="Leave empty to auto-estimate from type + distance">
-            Steps (override)
-            <input
-              className="input"
-              type="number"
-              placeholder="auto"
-              value={stepsOverride}
-              onChange={(e) => setStepsOverride(e.target.value)}
-            />
-          </label>
+          {type === "other" && (
+            <label className="field" style={{ flex: 1, minWidth: 140 }}>
+              Activity label
+              <input
+                className="input"
+                type="text"
+                placeholder="e.g. Stair climber, swim"
+                value={activityLabel}
+                onChange={(e) => setActivityLabel(e.target.value)}
+              />
+            </label>
+          )}
         </div>
+
+        {/* Entry-mode toggle: distance/duration vs. steps only. */}
+        <div className="row" role="tablist" style={{ gap: 6 }}>
+          <button
+            className={`btn small${mode === "distance" ? " primary" : ""}`}
+            type="button"
+            aria-pressed={mode === "distance"}
+            onClick={() => setMode("distance")}
+          >
+            Distance &amp; duration
+          </button>
+          <button
+            className={`btn small${mode === "steps" ? " primary" : ""}`}
+            type="button"
+            aria-pressed={mode === "steps"}
+            onClick={() => setMode("steps")}
+          >
+            Steps only
+          </button>
+        </div>
+
+        {mode === "distance" ? (
+          <div className="row wrap">
+            <label className="field" style={{ width: 96 }}>
+              Distance (mi)
+              <input
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                placeholder={type === "other" ? "optional" : ""}
+                value={distance}
+                onChange={(e) => setDistance(e.target.value)}
+              />
+            </label>
+            <label className="field" style={{ width: 96 }}>
+              Duration (min)
+              <input
+                className="input"
+                type="number"
+                min={0}
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+              />
+            </label>
+            <label className="field" style={{ width: 96 }}>
+              Intensity 1-10
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={10}
+                value={intensity}
+                onChange={(e) => setIntensity(e.target.value)}
+              />
+            </label>
+            <label
+              className="field"
+              style={{ width: 120 }}
+              title="Leave empty to auto-estimate from activity + distance"
+            >
+              Steps (override)
+              <input
+                className="input"
+                type="number"
+                min={0}
+                placeholder="auto"
+                value={stepsTotal}
+                onChange={(e) => setStepsTotal(e.target.value)}
+              />
+            </label>
+          </div>
+        ) : (
+          <div className="stack" style={{ gap: 8 }}>
+            <p className="empty" style={{ margin: 0, textAlign: "left" }}>
+              Log steps with their source — no distance or duration needed.
+            </p>
+            <div className="row wrap">
+              <label className="field" style={{ width: 120 }}>
+                Steps running
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={stepsRun}
+                  onChange={(e) => setStepsRun(e.target.value)}
+                />
+              </label>
+              <label className="field" style={{ width: 120 }}>
+                Steps walking
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={stepsWalked}
+                  onChange={(e) => setStepsWalked(e.target.value)}
+                />
+              </label>
+              <label
+                className="field"
+                style={{ width: 120 }}
+                title="Optional single total — overrides the split above for the headline count"
+              >
+                Total (optional)
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  placeholder="auto"
+                  value={stepsTotal}
+                  onChange={(e) => setStepsTotal(e.target.value)}
+                />
+              </label>
+              <label className="field" style={{ width: 96 }}>
+                Intensity 1-10
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={intensity}
+                  onChange={(e) => setIntensity(e.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+        )}
+
         <label className="field">
           How did it go? (report — the coach uses this for analysis)
           <textarea
@@ -169,53 +345,121 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
         Recent cardio
       </div>
       {recent.length === 0 ? (
-        <p className="empty">No cardio logged yet — log a run or walk above.</p>
+        <p className="empty">No cardio logged yet — log a run, walk, or steps above.</p>
       ) : (
         <table className="data">
           <thead>
             <tr>
               <th>Date</th>
-              <th>Type</th>
+              <th>Activity</th>
               <th>mi</th>
               <th>min</th>
-              <th>Int.</th>
               <th>Steps</th>
-              <th>Report</th>
               <th />
             </tr>
           </thead>
           <tbody>
-            {recent.map((c) => (
-              <tr key={c.id}>
-                <td>{c.date}</td>
-                <td>{c.type}</td>
-                <td>{miFromKm(c.distanceKm).toFixed(1)}</td>
-                <td>{Math.round(c.durationMinutes)}</td>
-                <td>{c.intensity}</td>
-                <td title={c.steps !== null ? "Manually entered" : "Estimated from type + distance"}>
-                  {cardioTotalSteps(c).toLocaleString()}{" "}
-                  <span style={{ fontSize: 10, color: "var(--muted)" }}>
-                    {c.steps !== null ? "manual" : "est"}
-                  </span>
-                </td>
-                <td
-                  title={c.report}
-                  style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                >
-                  {c.report ? c.report : <span style={{ color: "var(--muted)" }}>—</span>}
-                </td>
-                <td>
-                  <div className="row" style={{ gap: 4 }}>
-                    <button className="btn small" disabled={busy} onClick={() => loadForEdit(c)}>
-                      Edit
-                    </button>
-                    <button className="btn small danger" disabled={busy} onClick={() => remove(c.id)}>
-                      ×
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {recent.map((c) => {
+              const open = detailId === c.id;
+              const steps = cardioTotalSteps(c);
+              return (
+                <Fragment key={c.id}>
+                  <tr>
+                    <td>{c.date}</td>
+                    <td>
+                      <button
+                        className="btn small"
+                        style={{ border: "none", padding: "0 2px", fontWeight: 600 }}
+                        onClick={() => setDetailId(open ? null : c.id)}
+                        title="Show details"
+                      >
+                        {open ? "▾" : "▸"} {cardioActivityName(c)}
+                      </button>
+                    </td>
+                    <td>
+                      {c.distanceKm > 0 ? (
+                        miFromKm(c.distanceKm).toFixed(1)
+                      ) : (
+                        <span style={{ color: "var(--muted)" }}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      {c.durationMinutes > 0 ? (
+                        Math.round(c.durationMinutes)
+                      ) : (
+                        <span style={{ color: "var(--muted)" }}>—</span>
+                      )}
+                    </td>
+                    <td title={c.steps !== null ? "Manually entered" : "Estimated from activity + distance"}>
+                      {steps > 0 ? (
+                        <>
+                          {steps.toLocaleString()}{" "}
+                          <span style={{ fontSize: 10, color: "var(--muted)" }}>
+                            {c.steps !== null ? "manual" : "est"}
+                          </span>
+                        </>
+                      ) : (
+                        <span style={{ color: "var(--muted)" }}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="row" style={{ gap: 4 }}>
+                        <button className="btn small" disabled={busy} onClick={() => loadForEdit(c)}>
+                          Edit
+                        </button>
+                        <button className="btn small danger" disabled={busy} onClick={() => remove(c.id)}>
+                          ×
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {open && (
+                    <tr>
+                      <td colSpan={6} style={{ fontSize: 12, color: "var(--ink-2)" }}>
+                        <div className="stack" style={{ gap: 4 }}>
+                          <div>
+                            <strong>Activity:</strong> {cardioActivityName(c)}
+                            {c.type === "other" ? "" : ` (${CARDIO_TYPE_LABEL[c.type]})`} ·{" "}
+                            <strong>Intensity:</strong> {c.intensity}/10
+                          </div>
+                          <div>
+                            <strong>Distance:</strong>{" "}
+                            {c.distanceKm > 0 ? (
+                              `${miFromKm(c.distanceKm).toFixed(2)} mi`
+                            ) : (
+                              <em>none logged</em>
+                            )}{" "}
+                            · <strong>Duration:</strong>{" "}
+                            {c.durationMinutes > 0 ? `${Math.round(c.durationMinutes)} min` : <em>none</em>}
+                          </div>
+                          <div>
+                            <strong>Steps:</strong>{" "}
+                            {steps > 0 ? (
+                              <>
+                                {steps.toLocaleString()} ({c.steps !== null ? "manual" : "estimated"}) — run{" "}
+                                {(c.estimatedStepsRun ?? 0).toLocaleString()} / walked{" "}
+                                {(c.estimatedStepsWalked ?? 0).toLocaleString()}
+                              </>
+                            ) : (
+                              <em>none</em>
+                            )}
+                          </div>
+                          <div>
+                            <strong>Report:</strong>{" "}
+                            {c.report ? c.report : <em>no report — add one so the coach can weigh in.</em>}
+                          </div>
+                          {c.notes && (
+                            <div>
+                              <strong>Notes:</strong> {c.notes}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       )}

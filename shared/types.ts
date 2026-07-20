@@ -69,6 +69,9 @@ export interface EnergyBalance {
 // Workout
 // ---------------------------------------------------------------------------
 
+/** How performed sets of an exercise are measured (drives the logger input mode). */
+export type ExerciseTrackingType = "weight_reps" | "reps" | "time" | "distance" | "count";
+
 export interface Exercise {
   id: number;
   name: string;
@@ -77,6 +80,12 @@ export interface Exercise {
   /** How the exercise is performed (form cues) */
   instructions: string;
   notes: string;
+  /** What a set records: weight×reps, reps only, timed hold, distance, or a plain count */
+  trackingType: ExerciseTrackingType;
+  /** Recommended intensity guidance, e.g. "RPE 8, ~2 reps in reserve" */
+  intensityRec: string;
+  /** Recommended goal/target guidance, e.g. "3×8-12 for hypertrophy" */
+  goalRec: string;
   createdAt: string;
 }
 
@@ -107,6 +116,9 @@ export interface PlanDayExercise {
   reps: string; // e.g. "8-12"
   targetWeight: number | null;
   restSeconds: number | null;
+  targetSeconds: number | null; // target hold/work seconds for timed exercises
+  targetDistanceM: number | null; // target distance in meters for distance exercises
+  targetCount: number | null; // target count for count-tracked exercises
   notes: string;
   // joined convenience
   exerciseName?: string;
@@ -131,16 +143,29 @@ export interface SessionSet {
   weight: number | null;
   rpe: number | null; // 1-10 rate of perceived exertion
   durationSeconds: number | null; // seconds of timed work (e.g. planks)
+  distanceM: number | null; // meters covered (distance-tracked work, e.g. rowing)
+  count: number | null; // plain count (e.g. rounds, throws) for count-tracked work
   notes: string;
   exerciseName?: string;
 }
 
-export type CardioType = "run" | "jog" | "walk" | "interval";
+export type CardioType =
+  | "run"
+  | "jog"
+  | "walk"
+  | "interval"
+  | "hiit"
+  | "cycling"
+  | "rowing"
+  | "elliptical"
+  | "other";
 
 export interface CardioSession {
   id: number;
   date: string;
   type: CardioType;
+  /** Free-text label for the activity (esp. useful for type 'other') */
+  activityLabel: string;
   distanceKm: number;
   durationMinutes: number;
   intensity: number; // 1-10
@@ -231,6 +256,18 @@ export interface DailyNutritionSummary {
 
 export type StretchCategory = "stretch" | "yoga" | "posture";
 
+/** Named illustrative animation for a stretch/pose (drives the on-page demo). */
+export type MobilityAnimKind =
+  | "none"
+  | "reach_up"
+  | "forward_fold"
+  | "twist"
+  | "lunge"
+  | "hold"
+  | "side_bend"
+  | "cat_cow"
+  | "neck_roll";
+
 /** A stretch, yoga pose, or posture drill in the user's bank. */
 export interface Stretch {
   id: number;
@@ -240,6 +277,14 @@ export interface Stretch {
   /** How to perform it (form cues) */
   instructions: string;
   defaultHoldSeconds: number | null;
+  /** What the pose is for, e.g. "loosen tight hamstrings before running" */
+  goal: string;
+  /** Primary focus area/theme, e.g. "posterior chain" */
+  focus: string;
+  /** Where you should feel it, e.g. "back of the thighs, behind the knees" */
+  feelWhere: string;
+  /** Illustrative animation to show alongside the pose */
+  animKind: MobilityAnimKind;
   notes: string;
   createdAt: string;
 }
@@ -350,6 +395,13 @@ export interface Supplement {
   name: string;
   /** nutrient contents per dose, keyed by NutrientKey */
   nutrients: MicroMap;
+  /** macro contribution per dose — flows into the calorie tracker when taken */
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  sugarG: number;
+  sodiumMg: number;
   notes: string;
   active: 0 | 1;
   createdAt: string;

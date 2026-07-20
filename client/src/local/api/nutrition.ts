@@ -18,6 +18,7 @@ import {
   deleteWater,
   deleteWeight,
   getMacroHistory,
+  getSupplementMacroContribution,
   getWaterHistoryDays,
   listFoods,
   listWaterForDate,
@@ -71,6 +72,12 @@ export function registerRoutesNutrition(): void {
   // Daily summary + food log
   get("/api/nutrition/summary", ({ query }) =>
     respond(() => getNutritionSummary(parseDate(query.date, todayStr()))),
+  );
+
+  // Read-only breakdown of macros contributed by taken supplements (already
+  // folded into /summary totals by getNutritionSummary — shown, never re-added).
+  get("/api/nutrition/supplement-macros", ({ query }) =>
+    respond(() => getSupplementMacroContribution(parseDate(query.date, todayStr()))),
   );
   post("/api/nutrition/log", ({ body }) => respond(() => createFoodLog(body ?? {})));
   put("/api/nutrition/log/:id", ({ params, body }) =>

@@ -41,6 +41,29 @@ const nutrientKeyProp = {
   additionalProperties: { type: "number" },
 };
 
+/**
+ * Optional per-dose macro schema properties shared by create/update tools.
+ * These feed the Nutrition calorie/macro tracker on days the supplement is
+ * marked taken. Each defaults to 0 when omitted.
+ */
+const macroProps = {
+  calories: { type: "number", description: "Calories per dose in kcal (default 0)" },
+  proteinG: { type: "number", description: "Protein per dose in grams (default 0)" },
+  carbsG: { type: "number", description: "Carbohydrate per dose in grams (default 0)" },
+  fatG: { type: "number", description: "Fat per dose in grams (default 0)" },
+  sugarG: { type: "number", description: "Sugar per dose in grams (default 0)" },
+  sodiumMg: { type: "number", description: "Sodium per dose in milligrams (default 0)" },
+};
+
+interface MacroInput {
+  calories?: number;
+  proteinG?: number;
+  carbsG?: number;
+  fatG?: number;
+  sugarG?: number;
+  sodiumMg?: number;
+}
+
 export const vitaminsAgent: AgentDef = {
   name: "vitamins",
   title: "Micronutrient Assistant",
@@ -51,6 +74,7 @@ How you work:
 - Food first, supplements second. When a nutrient is short, use get_deficiency_context to get the exact amount still needed, then recommend 2-3 specific foods with realistic portions and approximate amounts from your nutrition knowledge (e.g. "one kiwi ≈ 60 mg vitamin C"). You must NOT create food entries or log meals — that belongs to the nutrition agent; tell the user to log foods on the Nutrition page or ask its agent. Only suggest a new supplement when diet realistically can't close the gap (vitamin D is a common example).
 - Safety: every nutrient has an upper limit where one exists (e.g. zinc 40 mg, vitamin A 3000 mcg). Flag anything trending over its upper limit in get_coverage_trends and advise dialing back before suggesting more of it. Warn before creating supplement stacks that would exceed limits.
 - Acting: manage supplements with create_supplement / update_supplement (per-dose contents keyed by nutrient keys; deactivate instead of deleting), and mark doses with toggle_taken. Only write what actually happened: NEVER create a supplement or mark one taken because you recommended it — a recommendation stays a recommendation until the user says they own the supplement or actually took the dose. Confirm with the user before deactivating or overwriting a supplement's contents, and after any write briefly state what changed with the numbers.
+- Macros: supplements can carry per-dose macros (calories, protein, carbs, fat, sugar, sodium). These are NOT just for micronutrients — on any day a supplement is marked taken, its macros are added into the user's Nutrition calorie and macro totals automatically. So when you create or update a supplement that actually carries calories (protein powder, greens/meal-replacement powder, sugary gummy vitamins, mass gainers), fill the macro fields from public label knowledge; leave them at 0 for calorie-free pills. Mention this link when it matters (e.g. "these gummies add ~15 kcal / 3 g sugar to your Nutrition totals each day you log them").
 - Memory: use save_memory for durable facts — dietary restrictions (vegan, dairy-free), diagnosed deficiencies, doctor recommendations, supplement schedules, what worked. Saved memories and a live <context> snapshot of today's coverage are injected into every turn; rely on them but re-read tools for exact figures.
 
 Tone: a precise, encouraging micronutrient coach. Concrete numbers and units, short actionable answers, no filler.`,
@@ -129,7 +153,7 @@ Tone: a precise, encouraging micronutrient coach. Concrete numbers and units, sh
     {
       name: "list_supplements",
       description:
-        "List every supplement in the library (active and inactive) with per-dose nutrient contents, notes, and whether each was taken today. Read this before creating, editing, or toggling supplements so you use real ids and avoid duplicates.",
+        "List every supplement in the library (active and inactive) with per-dose nutrient contents, per-dose macros (calories/protein/carbs/fat/sugar/sodium — what each taken dose adds to Nutrition totals), notes, and whether each was taken today. Read this before creating, editing, or toggling supplements so you use real ids, avoid duplicates, and can verify or truthfully report an existing supplement's macros before a partial update.",
       input_schema: { type: "object", properties: {} },
       run: () => {
         const taken = new Set(takenIdsForDate(todayStr()));
@@ -140,6 +164,14 @@ Tone: a precise, encouraging micronutrient coach. Concrete numbers and units, sh
             active: s.active === 1,
             takenToday: taken.has(s.id),
             nutrientsPerDose: s.nutrients,
+            macrosPerDose: {
+              calories: s.calories,
+              proteinG: s.proteinG,
+              carbsG: s.carbsG,
+              fatG: s.fatG,
+              sugarG: s.sugarG,
+              sodiumMg: s.sodiumMg,
+            },
             notes: s.notes,
           })),
         );
@@ -148,17 +180,20 @@ Tone: a precise, encouraging micronutrient coach. Concrete numbers and units, sh
     {
       name: "create_supplement",
       description:
-        "Create a supplement with its per-dose nutrient contents (created active). Use exact nutrient keys and per-dose amounts in each nutrient's own unit (mg/mcg/g as defined). Check list_supplements first to avoid duplicates, and check upper limits before stacking.",
+        "Create a supplement with its per-dose nutrient contents (created active). Use exact nutrient keys and per-dose amounts in each nutrient's own unit (mg/mcg/g as defined). Optionally include per-dose macros (calories, proteinG, carbsG, fatG, sugarG, sodiumMg) — these count toward the user's Nutrition calories/macros on days the supplement is marked taken, so fill them from public label knowledge for a known product (e.g. a protein powder, a greens or meal-replacement powder, gummy vitamins with sugar); leave them at 0 for calorie-free pills. Check list_supplements first to avoid duplicates, and check upper limits before stacking.",
       input_schema: {
         type: "object",
         properties: {
           name: { type: "string", description: "Supplement name, e.g. 'Daily Multivitamin'" },
           nutrients: nutrientKeyProp,
+          ...macroProps,
           notes: { type: "string", description: "Optional notes (brand, dosing schedule...)" },
         },
         required: ["name", "nutrients"],
       },
-      run: (input: { name: string; nutrients: Record<string, number>; notes?: string }) => {
+      run: (
+        input: { name: string; nutrients: Record<string, number>; notes?: string } & MacroInput,
+      ) => {
         const s = createSupplement(input);
         return JSON.stringify({ created: true, supplement: s });
       },
@@ -166,25 +201,28 @@ Tone: a precise, encouraging micronutrient coach. Concrete numbers and units, sh
     {
       name: "update_supplement",
       description:
-        "Update a supplement by id: rename, replace its per-dose nutrient contents (full replacement — include ALL nutrients it should have), edit notes, or activate/deactivate it (active: true/false). Deactivate rather than delete when the user stops taking something. Confirm with the user before overwriting contents or deactivating.",
+        "Update a supplement by id: rename, replace its per-dose nutrient contents (full replacement — include ALL nutrients it should have), edit notes, update per-dose macros (calories, proteinG, carbsG, fatG, sugarG, sodiumMg — omitted macro fields keep their current value), or activate/deactivate it (active: true/false). Deactivate rather than delete when the user stops taking something. Confirm with the user before overwriting contents or deactivating.",
       input_schema: {
         type: "object",
         properties: {
           id: { type: "number", description: "Supplement id from list_supplements" },
           name: { type: "string" },
           nutrients: nutrientKeyProp,
+          ...macroProps,
           notes: { type: "string" },
           active: { type: "boolean", description: "true = active, false = deactivated" },
         },
         required: ["id"],
       },
-      run: (input: {
-        id: number;
-        name?: string;
-        nutrients?: Record<string, number>;
-        notes?: string;
-        active?: boolean;
-      }) => {
+      run: (
+        input: {
+          id: number;
+          name?: string;
+          nutrients?: Record<string, number>;
+          notes?: string;
+          active?: boolean;
+        } & MacroInput,
+      ) => {
         const { id, ...patch } = input;
         if (!Number.isInteger(id) || id <= 0) throw new Error("id must be a positive integer");
         const s = updateSupplement(id, patch);
@@ -244,11 +282,29 @@ Tone: a precise, encouraging micronutrient coach. Concrete numbers and units, sh
         unit: c.unit,
       })),
       overUpperLimitToday: overLimit,
-      activeSupplements: s.activeSupplements.map((x) => ({
-        id: x.id,
-        name: x.name,
-        takenToday: takenIds.has(x.id),
-      })),
+      activeSupplements: s.activeSupplements.map((x) => {
+        // Only calorie/macro-carrying supplements surface macros here (keeps the
+        // snapshot lean); use list_supplements for every field on every row.
+        const hasMacros =
+          x.calories || x.proteinG || x.carbsG || x.fatG || x.sugarG || x.sodiumMg;
+        return {
+          id: x.id,
+          name: x.name,
+          takenToday: takenIds.has(x.id),
+          ...(hasMacros
+            ? {
+                macrosPerDose: {
+                  calories: x.calories,
+                  proteinG: x.proteinG,
+                  carbsG: x.carbsG,
+                  fatG: x.fatG,
+                  sugarG: x.sugarG,
+                  sodiumMg: x.sodiumMg,
+                },
+              }
+            : {}),
+        };
+      }),
     });
   },
 };

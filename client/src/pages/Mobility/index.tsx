@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  MobilityAnimKind,
   MobilityAssessment,
   MobilityDaySummary,
   MobilityKind,
@@ -23,6 +24,8 @@ import {
 } from "../../api/mobility";
 import { AgentChat } from "../../components/AgentChat";
 import { ChartCard, HistoryBars, SERIES, StatTile, TrendLine } from "../../viz/ChartKit";
+import { PoseAnimation, ANIM_KIND_OPTIONS, ANIM_KIND_LABELS } from "./PoseAnimation";
+import { FollowPlayer } from "./FollowPlayer";
 
 const HISTORY_DAYS = 30;
 const TREND_DAYS = 180;
@@ -188,18 +191,19 @@ export default function MobilityPage() {
         </ChartCard>
 
         <ChartCard title={`Activity — last ${HISTORY_DAYS} days`} sub="Mobility minutes per day">
-          {sessions.length === 0 && (
+          {sessions.length === 0 ? (
             <p className="empty" style={{ padding: 0 }}>
               Nothing logged yet — your daily minutes will chart here.
             </p>
+          ) : (
+            <HistoryBars
+              data={historyData}
+              x="date"
+              bars={[{ key: "minutes", name: "Minutes" }]}
+              unit="min"
+              height={220}
+            />
           )}
-          <HistoryBars
-            data={historyData}
-            x="date"
-            bars={[{ key: "minutes", name: "Minutes" }]}
-            unit="min"
-            height={220}
-          />
         </ChartCard>
       </div>
 
@@ -622,6 +626,7 @@ function RoutinesCard(props: {
   const [pickId, setPickId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [following, setFollowing] = useState<RoutineWithItems | null>(null);
   const nextKey = useRef(1);
 
   const stretchById = useMemo(
@@ -793,6 +798,20 @@ function RoutinesCard(props: {
                   )}
                 </div>
                 <div className="row" style={{ gap: 6 }}>
+                  {r.archived === 0 && (
+                    <button
+                      className="btn small primary"
+                      disabled={busy || r.items.length === 0}
+                      title={
+                        r.items.length === 0
+                          ? "Add stretches to this routine first"
+                          : "Step through this routine one pose at a time"
+                      }
+                      onClick={() => setFollowing(r)}
+                    >
+                      ▶ Follow
+                    </button>
+                  )}
                   <button
                     className="btn small"
                     disabled={busy}
@@ -1002,6 +1021,15 @@ function RoutinesCard(props: {
       )}
 
       {error && <p className="error-text">{error}</p>}
+
+      {following && (
+        <FollowPlayer
+          routine={following}
+          stretches={props.stretches}
+          onClose={() => setFollowing(null)}
+          onSaved={props.onChange}
+        />
+      )}
     </div>
   );
 }
@@ -1017,13 +1045,26 @@ interface StretchFormState {
   targetAreas: string;
   instructions: string;
   defaultHoldSeconds: string;
+  goal: string;
+  focus: string;
+  feelWhere: string;
+  animKind: MobilityAnimKind;
   notes: string;
 }
 
 function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) {
   const [form, setForm] = useState<StretchFormState | null>(null);
+  const [detail, setDetail] = useState<Stretch | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Keep an open detail view in sync with refreshed data (e.g. after an edit),
+  // and close it if the pose is deleted.
+  useEffect(() => {
+    if (!detail) return;
+    const fresh = props.stretches.find((s) => s.id === detail.id);
+    setDetail(fresh ?? null);
+  }, [props.stretches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -1048,6 +1089,10 @@ function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) 
       targetAreas: "",
       instructions: "",
       defaultHoldSeconds: "",
+      goal: "",
+      focus: "",
+      feelWhere: "",
+      animKind: "none",
       notes: "",
     };
   }
@@ -1060,6 +1105,10 @@ function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) 
       targetAreas: s.targetAreas,
       instructions: s.instructions,
       defaultHoldSeconds: s.defaultHoldSeconds != null ? String(s.defaultHoldSeconds) : "",
+      goal: s.goal,
+      focus: s.focus,
+      feelWhere: s.feelWhere,
+      animKind: s.animKind,
       notes: s.notes,
     };
   }
@@ -1082,6 +1131,10 @@ function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) 
       targetAreas: form.targetAreas.trim(),
       instructions: form.instructions.trim(),
       defaultHoldSeconds: hold,
+      goal: form.goal.trim(),
+      focus: form.focus.trim(),
+      feelWhere: form.feelWhere.trim(),
+      animKind: form.animKind,
       notes: form.notes.trim(),
     };
     const ok = await run(() =>
@@ -1115,65 +1168,98 @@ function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) 
       )}
 
       {props.stretches.length > 0 && (
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Category</th>
-              <th>Targets</th>
-              <th>Hold</th>
-              <th style={{ width: 130 }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.stretches.map((s) => (
-              <tr key={s.id}>
-                <td>
-                  <div style={{ fontWeight: 600 }} title={s.instructions || undefined}>
-                    {s.name}
-                  </div>
-                  {s.notes && (
-                    <div style={{ fontSize: 12, color: "var(--muted)" }}>{truncate(s.notes, 40)}</div>
-                  )}
-                </td>
-                <td>
-                  <span className="chip">{s.category}</span>
-                </td>
-                <td style={{ fontSize: 12, color: "var(--ink-2)" }}>{s.targetAreas || "—"}</td>
-                <td>{s.defaultHoldSeconds != null ? `${s.defaultHoldSeconds}s` : "—"}</td>
-                <td>
-                  <div className="row" style={{ gap: 6 }}>
-                    <button
-                      className="btn small"
-                      disabled={busy}
-                      onClick={() => {
-                        setError(null);
-                        setForm(formFromStretch(s));
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="btn small danger"
-                      disabled={busy}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Delete "${s.name}"? Routines using it will drop it from their items.`,
-                          )
-                        ) {
-                          run(() => mobilityApi.deleteStretch(s.id));
-                        }
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                </td>
+        <>
+          <div className="card-sub" style={{ marginTop: 0 }}>Tap a pose for its animation and cues</div>
+          <table className="data">
+            <thead>
+              <tr>
+                <th style={{ width: 40 }}>Pose</th>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Targets</th>
+                <th>Hold</th>
+                <th style={{ width: 130 }}>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {props.stretches.map((s) => (
+                <tr key={s.id} style={{ cursor: "pointer" }} onClick={() => setDetail(s)}>
+                  <td onClick={(e) => e.stopPropagation()} style={{ cursor: "pointer" }}>
+                    <span onClick={() => setDetail(s)} title="View pose">
+                      <PoseAnimation kind={s.animKind} size={34} />
+                    </span>
+                  </td>
+                  <td>
+                    <button
+                      title="View pose details"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDetail(s);
+                      }}
+                      style={{
+                        all: "unset",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                        color: "var(--accent)",
+                      }}
+                    >
+                      {s.name}
+                    </button>
+                    {s.focus && (
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>{truncate(s.focus, 40)}</div>
+                    )}
+                  </td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <span className="chip">{s.category}</span>
+                  </td>
+                  <td style={{ fontSize: 12, color: "var(--ink-2)" }}>{s.targetAreas || "—"}</td>
+                  <td>{s.defaultHoldSeconds != null ? `${s.defaultHoldSeconds}s` : "—"}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <div className="row" style={{ gap: 6 }}>
+                      <button
+                        className="btn small"
+                        disabled={busy}
+                        onClick={() => {
+                          setError(null);
+                          setForm(formFromStretch(s));
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="btn small danger"
+                        disabled={busy}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Delete "${s.name}"? Routines using it will drop it from their items.`,
+                            )
+                          ) {
+                            run(() => mobilityApi.deleteStretch(s.id));
+                          }
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {detail && (
+        <StretchDetail
+          stretch={detail}
+          onClose={() => setDetail(null)}
+          onEdit={() => {
+            setError(null);
+            setForm(formFromStretch(detail));
+            setDetail(null);
+          }}
+        />
       )}
 
       {form && (
@@ -1226,6 +1312,65 @@ function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) 
               />
             </label>
           </div>
+          <div className="row wrap">
+            <label className="field" style={{ flex: 1, minWidth: 140 }}>
+              Goal
+              <input
+                className="input"
+                placeholder="e.g. loosen tight hamstrings before running"
+                value={form.goal}
+                onChange={(e) => setForm({ ...form, goal: e.target.value })}
+              />
+            </label>
+            <label className="field" style={{ flex: 1, minWidth: 140 }}>
+              Focus on
+              <input
+                className="input"
+                placeholder="e.g. posterior chain"
+                value={form.focus}
+                onChange={(e) => setForm({ ...form, focus: e.target.value })}
+              />
+            </label>
+          </div>
+          <label className="field">
+            Where you feel it
+            <input
+              className="input"
+              placeholder="e.g. back of the thighs, behind the knees"
+              value={form.feelWhere}
+              onChange={(e) => setForm({ ...form, feelWhere: e.target.value })}
+            />
+          </label>
+          <div className="row wrap" style={{ alignItems: "flex-end" }}>
+            <label className="field" style={{ flex: 1, minWidth: 160 }}>
+              Animation
+              <select
+                className="input"
+                value={form.animKind}
+                onChange={(e) => setForm({ ...form, animKind: e.target.value as MobilityAnimKind })}
+              >
+                {ANIM_KIND_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div
+              className="row"
+              style={{
+                gap: 8,
+                alignItems: "center",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                padding: "6px 10px",
+                background: "var(--surface-2)",
+              }}
+            >
+              <PoseAnimation kind={form.animKind} size={56} />
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Live preview</span>
+            </div>
+          </div>
           <label className="field">
             Instructions (form cues)
             <textarea
@@ -1264,6 +1409,115 @@ function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) 
       )}
 
       {error && <p className="error-text">{error}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stretch detail (tap-through): large animation + goal / focus / feel + cues
+// ---------------------------------------------------------------------------
+
+function DetailRow(props: { label: string; value: string }) {
+  if (!props.value) return null;
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--muted)" }}>
+        {props.label}
+      </div>
+      <div style={{ fontSize: 14, color: "var(--ink)" }}>{props.value}</div>
+    </div>
+  );
+}
+
+function StretchDetail(props: { stretch: Stretch; onClose: () => void; onEdit: () => void }) {
+  const s = props.stretch;
+  const hasCues = s.goal || s.focus || s.feelWhere || s.instructions;
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={props.onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 200,
+        background: "color-mix(in srgb, var(--ink) 45%, transparent)",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "center",
+        overflowY: "auto",
+        padding: "24px 14px calc(24px + env(safe-area-inset-bottom))",
+      }}
+    >
+      <div
+        className="card stack"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 440, width: "100%", gap: 14 }}
+      >
+        <div className="row between wrap">
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 19, letterSpacing: "-0.02em" }}>{s.name}</div>
+            <div className="row" style={{ gap: 6, marginTop: 4 }}>
+              <span className="chip">{s.category}</span>
+              <span className="chip">{ANIM_KIND_LABELS[s.animKind]}</span>
+            </div>
+          </div>
+          <button className="btn small" onClick={props.onClose} title="Close">
+            ✕
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            padding: "12px 0",
+            background: "var(--surface-2)",
+            borderRadius: "var(--radius-sm)",
+          }}
+        >
+          <PoseAnimation kind={s.animKind} size={200} />
+        </div>
+
+        {s.targetAreas && (
+          <div className="row wrap" style={{ gap: 6 }}>
+            {s.targetAreas
+              .split(",")
+              .map((a) => a.trim())
+              .filter(Boolean)
+              .map((a) => (
+                <span key={a} className="chip">
+                  {a}
+                </span>
+              ))}
+          </div>
+        )}
+
+        <div className="stack" style={{ gap: 10 }}>
+          <DetailRow label="Goal" value={s.goal} />
+          <DetailRow label="Focus on" value={s.focus} />
+          <DetailRow label="Where you feel it" value={s.feelWhere} />
+          <DetailRow label="How to do it" value={s.instructions} />
+          {s.defaultHoldSeconds != null && (
+            <DetailRow label="Typical hold" value={`${s.defaultHoldSeconds} seconds`} />
+          )}
+          <DetailRow label="Notes" value={s.notes} />
+          {!hasCues && (
+            <p className="empty" style={{ padding: 0 }}>
+              No cues yet — edit this pose to add a goal, focus, and where you should feel it.
+            </p>
+          )}
+        </div>
+
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn primary" onClick={props.onEdit}>
+            Edit pose
+          </button>
+          <button className="btn" onClick={props.onClose}>
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

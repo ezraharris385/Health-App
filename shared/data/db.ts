@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS exercises (
   equipment TEXT NOT NULL DEFAULT '',
   instructions TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
+  tracking_type TEXT NOT NULL DEFAULT 'weight_reps',
+  intensity_rec TEXT NOT NULL DEFAULT '',
+  goal_rec TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -89,6 +92,9 @@ CREATE TABLE IF NOT EXISTS plan_day_exercises (
   reps TEXT NOT NULL DEFAULT '8-12',
   target_weight REAL,
   rest_seconds INTEGER,
+  target_seconds INTEGER,
+  target_distance_m REAL,
+  target_count INTEGER,
   notes TEXT NOT NULL DEFAULT ''
 );
 
@@ -111,13 +117,16 @@ CREATE TABLE IF NOT EXISTS session_sets (
   weight REAL,
   rpe REAL,
   duration_seconds REAL,             -- seconds of timed work (e.g. planks)
+  distance_m REAL,                   -- meters covered (distance-tracked work)
+  count INTEGER,                     -- plain count (e.g. rounds) for count-tracked work
   notes TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS cardio_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('run','jog','walk','interval')),
+  type TEXT NOT NULL CHECK (type IN ('run','jog','walk','interval','hiit','cycling','rowing','elliptical','other')),
+  activity_label TEXT NOT NULL DEFAULT '',
   distance_km REAL NOT NULL DEFAULT 0,
   duration_minutes REAL NOT NULL DEFAULT 0,
   intensity INTEGER NOT NULL DEFAULT 5,
@@ -180,6 +189,10 @@ CREATE TABLE IF NOT EXISTS stretches (
   target_areas TEXT NOT NULL DEFAULT '',
   instructions TEXT NOT NULL DEFAULT '',
   default_hold_seconds INTEGER,
+  goal TEXT NOT NULL DEFAULT '',
+  focus TEXT NOT NULL DEFAULT '',
+  feel_where TEXT NOT NULL DEFAULT '',
+  anim_kind TEXT NOT NULL DEFAULT 'none',
   notes TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -252,6 +265,12 @@ CREATE TABLE IF NOT EXISTS supplements (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   nutrients_json TEXT NOT NULL DEFAULT '{}',
+  calories REAL NOT NULL DEFAULT 0,
+  protein_g REAL NOT NULL DEFAULT 0,
+  carbs_g REAL NOT NULL DEFAULT 0,
+  fat_g REAL NOT NULL DEFAULT 0,
+  sugar_g REAL NOT NULL DEFAULT 0,
+  sodium_mg REAL NOT NULL DEFAULT 0,
   notes TEXT NOT NULL DEFAULT '',
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -297,19 +316,102 @@ CREATE TABLE IF NOT EXISTS agent_memory (
 CREATE INDEX IF NOT EXISTS idx_agent_memory_agent ON agent_memory(agent);
 `;
 
+/**
+ * True when `table` already has a column named `column`. Uses the engine-neutral
+ * prepare/get surface (pragma_table_info works identically on better-sqlite3 and
+ * sql.js). Names are internal constants, never user input.
+ */
+function hasColumn(table: string, column: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM pragma_table_info('${table}') WHERE name = '${column}'`,
+    )
+    .get() as { c: number };
+  return row.c > 0;
+}
+
+/** Guarded ALTER TABLE ADD COLUMN — a silent no-op if the column already exists. */
+function addColumn(table: string, column: string, ddl: string): void {
+  if (!hasColumn(table, column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+
 export function applySchema(): void {
   db.exec(SCHEMA_SQL);
   // In-place migrations for databases created before a column existed. Each is
   // guarded so re-running is a silent no-op on already-upgraded databases, and
   // uses only the engine-neutral prepare/get + exec surface (works identically
-  // with better-sqlite3 and sql.js).
-  const hasDurationSeconds = db
-    .prepare(
-      "SELECT COUNT(*) AS c FROM pragma_table_info('session_sets') WHERE name = 'duration_seconds'",
-    )
-    .get() as { c: number };
-  if (!hasDurationSeconds.c) {
-    db.exec("ALTER TABLE session_sets ADD COLUMN duration_seconds REAL");
+  // with better-sqlite3 and sql.js). NOT NULL columns always carry a DEFAULT so
+  // ADD COLUMN succeeds against existing rows.
+
+  // Workout — timed/distance/count-tracked sets + richer exercise metadata.
+  addColumn("session_sets", "duration_seconds", "duration_seconds REAL");
+  addColumn("session_sets", "distance_m", "distance_m REAL");
+  addColumn("session_sets", "count", "count INTEGER");
+  addColumn("exercises", "tracking_type", "tracking_type TEXT NOT NULL DEFAULT 'weight_reps'");
+  addColumn("exercises", "intensity_rec", "intensity_rec TEXT NOT NULL DEFAULT ''");
+  addColumn("exercises", "goal_rec", "goal_rec TEXT NOT NULL DEFAULT ''");
+  addColumn("plan_day_exercises", "target_seconds", "target_seconds INTEGER");
+  addColumn("plan_day_exercises", "target_distance_m", "target_distance_m REAL");
+  addColumn("plan_day_exercises", "target_count", "target_count INTEGER");
+
+  // Vitamins — supplements now carry a per-dose macro contribution.
+  addColumn("supplements", "calories", "calories REAL NOT NULL DEFAULT 0");
+  addColumn("supplements", "protein_g", "protein_g REAL NOT NULL DEFAULT 0");
+  addColumn("supplements", "carbs_g", "carbs_g REAL NOT NULL DEFAULT 0");
+  addColumn("supplements", "fat_g", "fat_g REAL NOT NULL DEFAULT 0");
+  addColumn("supplements", "sugar_g", "sugar_g REAL NOT NULL DEFAULT 0");
+  addColumn("supplements", "sodium_mg", "sodium_mg REAL NOT NULL DEFAULT 0");
+
+  // Mobility — richer stretch/pose metadata.
+  addColumn("stretches", "goal", "goal TEXT NOT NULL DEFAULT ''");
+  addColumn("stretches", "focus", "focus TEXT NOT NULL DEFAULT ''");
+  addColumn("stretches", "feel_where", "feel_where TEXT NOT NULL DEFAULT ''");
+  addColumn("stretches", "anim_kind", "anim_kind TEXT NOT NULL DEFAULT 'none'");
+
+  // Cardio — the type CHECK constraint must be relaxed to the 9 activity types
+  // and an activity_label added. A CHECK cannot be altered in place, so existing
+  // databases are rebuilt (create-new / copy / drop / rename) inside one
+  // transaction. Guard: only rebuild when the stored table SQL predates 'hiit'.
+  // Fresh databases already get the new definition from SCHEMA_SQL above, so
+  // their SQL contains 'hiit' and this is skipped. Nothing references
+  // cardio_sessions, so dropping it is safe.
+  const cardioSql =
+    (
+      db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name='cardio_sessions'",
+        )
+        .get() as { sql: string } | undefined
+    )?.sql ?? "";
+  if (cardioSql && !cardioSql.includes("hiit")) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE cardio_sessions_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('run','jog','walk','interval','hiit','cycling','rowing','elliptical','other')),
+          activity_label TEXT NOT NULL DEFAULT '',
+          distance_km REAL NOT NULL DEFAULT 0,
+          duration_minutes REAL NOT NULL DEFAULT 0,
+          intensity INTEGER NOT NULL DEFAULT 5,
+          steps INTEGER,
+          estimated_steps_run INTEGER,
+          estimated_steps_walked INTEGER,
+          report TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL DEFAULT ''
+        );
+        INSERT INTO cardio_sessions_new
+          (id, date, type, distance_km, duration_minutes, intensity,
+           steps, estimated_steps_run, estimated_steps_walked, report, notes)
+          SELECT id, date, type, distance_km, duration_minutes, intensity,
+                 steps, estimated_steps_run, estimated_steps_walked, report, notes
+          FROM cardio_sessions;
+        DROP TABLE cardio_sessions;
+        ALTER TABLE cardio_sessions_new RENAME TO cardio_sessions;
+      `);
+    })();
   }
 }
 

@@ -11,12 +11,14 @@ import { dashboardApi } from "../../api/dashboard";
 import {
   nutritionApi,
   type MacroHistoryResponse,
+  type SupplementMacroContribution,
   type WaterHistoryResponse,
   type WaterSummary,
   type WeightHistoryResponse,
 } from "../../api/nutrition";
 import { FLOZ, flozFromMl } from "../../units";
 import { ChartCard, HistoryBars, Legend, Meter, SERIES, StatTile } from "../../viz/ChartKit";
+import { CoachDraftCard } from "./CoachDraftCard";
 import { EnergyCard } from "./EnergyCard";
 import { MealLogCard } from "./MealLogCard";
 import { WaterCard } from "./WaterCard";
@@ -31,6 +33,8 @@ export default function NutritionPage() {
   const [waterHistory, setWaterHistory] = useState<WaterHistoryResponse | null>(null);
   const [weight, setWeight] = useState<WeightHistoryResponse | null>(null);
   const [energy, setEnergy] = useState<EnergyBalance | null>(null);
+  const [suppMacros, setSuppMacros] = useState<SupplementMacroContribution | null>(null);
+  const [coachDraft, setCoachDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const dateRef = useRef(date);
@@ -45,8 +49,9 @@ export default function NutritionPage() {
       nutritionApi.waterHistory(30),
       nutritionApi.weight(90),
       dashboardApi.energy(date),
+      nutritionApi.supplementMacros(date),
     ])
-      .then(([s, h, w, wh, wt, en]) => {
+      .then(([s, h, w, wh, wt, en, sm]) => {
         if (dateRef.current !== date) return;
         setSummary(s);
         setHistory(h);
@@ -54,6 +59,7 @@ export default function NutritionPage() {
         setWaterHistory(wh);
         setWeight(wt);
         setEnergy(en);
+        setSuppMacros(sm);
         setError(null);
       })
       .catch((e) =>
@@ -109,6 +115,20 @@ export default function NutritionPage() {
     day: fmtDay(d.date),
     totalFloz: r1(flozFromMl(d.totalMl)),
   }));
+
+  // Every nonzero macro a taken supplement adds to today's totals — disclosed so
+  // the day-vs-goals numbers reconcile against the food-only meal log (a 0-kcal
+  // electrolyte tablet still moves Sodium, which must be attributable).
+  const suppParts = suppMacros
+    ? [
+        suppMacros.calories > 0 ? `${Math.round(suppMacros.calories)} kcal` : null,
+        suppMacros.proteinG > 0 ? `+${r1(suppMacros.proteinG)}g protein` : null,
+        suppMacros.carbsG > 0 ? `+${r1(suppMacros.carbsG)}g carbs` : null,
+        suppMacros.fatG > 0 ? `+${r1(suppMacros.fatG)}g fat` : null,
+        suppMacros.sugarG > 0 ? `+${r1(suppMacros.sugarG)}g sugar` : null,
+        suppMacros.sodiumMg > 0 ? `+${Math.round(suppMacros.sodiumMg)}mg sodium` : null,
+      ].filter((p): p is string => p !== null)
+    : [];
 
   return (
     <div>
@@ -184,6 +204,12 @@ export default function NutritionPage() {
                 Fiber {r1(totals.fiberG)}g · Sugar {r1(totals.sugarG)}g · Sodium{" "}
                 {Math.round(totals.sodiumMg)}mg
               </p>
+              {suppMacros && suppParts.length > 0 && (
+                <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
+                  incl. {suppParts.join(" · ")} from {suppMacros.count} supplement
+                  {suppMacros.count === 1 ? "" : "s"} taken
+                </p>
+              )}
             </div>
           ) : (
             <p className="empty">Loading…</p>
@@ -193,7 +219,13 @@ export default function NutritionPage() {
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <MealLogCard summary={summary} date={date} onChange={reload} reloadKey={reloadKey} />
+        <MealLogCard
+          summary={summary}
+          date={date}
+          onChange={reload}
+          reloadKey={reloadKey}
+          onAskCoach={setCoachDraft}
+        />
       </div>
 
       <h2 className="section-title">History</h2>
@@ -246,6 +278,15 @@ export default function NutritionPage() {
       </div>
 
       <h2 className="section-title">Assistant</h2>
+      {coachDraft !== null && (
+        <div style={{ marginBottom: 14 }}>
+          <CoachDraftCard
+            draft={coachDraft}
+            onSent={() => setCoachDraft(null)}
+            onDismiss={() => setCoachDraft(null)}
+          />
+        </div>
+      )}
       <AgentChat
         agent="nutrition"
         title="Nutrition Assistant"
