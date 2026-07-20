@@ -91,8 +91,9 @@ everything, including the agents' memories and conversations.
   feel-it detail and a looping pose animation), routines built from it, session logging with a
   qualitative "how it went" report, and your own named metrics (e.g. "Hamstring flexibility")
   rated 1-10 over time with trend charts.
-- **Dashboard** — your daily health score (weighted: nutrition 28%, workout 22%, sleep 22%,
-  vitamins 15%, mobility 13%) with weekly/monthly trends and the master agent chat.
+- **Dashboard** — your daily health score (segment weights are user-customizable per goal in
+  Settings; the default "Balanced" preset uses nutrition 28%, workout 22%, sleep 22%, vitamins
+  15%, mobility 13%) with weekly/monthly trends and the master agent chat.
 
 ## The agents
 

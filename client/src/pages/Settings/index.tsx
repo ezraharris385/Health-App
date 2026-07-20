@@ -9,6 +9,12 @@ import {
   mlFromFloz,
 } from "../../units";
 import type { Settings } from "@shared/types";
+import {
+  SCORE_PRESETS,
+  SEGMENT_KEYS,
+  normalizeWeights,
+  type ScoreSegment,
+} from "@shared/data/scoreWeights";
 
 // Local-mode-only cards (API key + backups). The build-time constant makes
 // this dead code in server mode, so the local runtime never gets bundled.
@@ -29,6 +35,15 @@ const ACTIVITY_OPTIONS: { value: NonNullable<Settings["profile"]["activityLevel"
   { value: "active", label: "Active (6–7 days/wk)" },
   { value: "very_active", label: "Very active (hard daily / physical job)" },
 ];
+
+// Display labels for the five scored segments (raw weight order = SEGMENT_KEYS).
+const SEGMENT_LABELS: Record<ScoreSegment, string> = {
+  workout: "Workout",
+  nutrition: "Nutrition",
+  sleep: "Sleep",
+  vitamins: "Vitamins",
+  mobility: "Mobility",
+};
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -86,6 +101,39 @@ export default function SettingsPage() {
     setSettings({ ...settings, profile: { ...p, [key]: value } });
 
   const num = (v: string) => (v === "" ? null : Number(v));
+
+  // Daily-score weights. Raw points live in settings.scoreWeights; the live
+  // share below each input is what scoring actually uses (raw/Σraw, normalized).
+  const sw = settings.scoreWeights;
+  const goalPreset = settings.scoreGoalPreset;
+  const shares = normalizeWeights(sw);
+  // When every raw weight is 0, normalizeWeights falls back to the Balanced
+  // defaults — so the shares below (and the score) show 22/28/… while the inputs
+  // read 0. Surface that so the displayed % doesn't silently contradict the input.
+  const rawWeightTotal = SEGMENT_KEYS.reduce((sum, seg) => sum + (Number(sw[seg]) || 0), 0);
+  const usingDefaultWeights = rawWeightTotal <= 0;
+
+  // Editing any raw weight makes the weight set "custom"; picking a preset both
+  // replaces the weights and re-tags the preset.
+  const setWeight = (seg: ScoreSegment, raw: number) =>
+    setSettings({
+      ...settings,
+      scoreWeights: { ...sw, [seg]: raw },
+      scoreGoalPreset: "custom",
+    });
+  const applyPreset = (key: string) => {
+    const preset = SCORE_PRESETS[key];
+    if (!preset) {
+      // "Custom" chosen explicitly — keep the current weights, just re-tag.
+      setSettings({ ...settings, scoreGoalPreset: "custom" });
+      return;
+    }
+    setSettings({
+      ...settings,
+      scoreWeights: { ...preset.weights },
+      scoreGoalPreset: key,
+    });
+  };
 
   async function save() {
     // Height: convert ft + in → cm. Empty both = cleared (null). Otherwise both
@@ -158,6 +206,8 @@ export default function SettingsPage() {
       const patch: Partial<Settings> = {
         profile: { ...p, heightCm },
         goals: { ...g, waterGoalMl, weightUnit: "lb" },
+        scoreWeights: sw,
+        scoreGoalPreset: goalPreset,
       };
       const next = await settingsApi.save(patch);
       setSettings(next);
@@ -388,6 +438,70 @@ export default function SettingsPage() {
             </label>
           </div>
         </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <h3>Daily score weights</h3>
+        <p className="card-sub">
+          These decide how much each tab counts toward your daily score. Pick a goal preset
+          or set your own — the five weights always renormalize to 100%.
+        </p>
+        <div className="stack">
+          <label className="field">
+            Goal preset
+            <select
+              className="input"
+              value={goalPreset ?? "balanced"}
+              onChange={(e) => applyPreset(e.target.value)}
+            >
+              {Object.entries(SCORE_PRESETS).map(([key, preset]) => (
+                <option key={key} value={key}>
+                  {preset.label}
+                </option>
+              ))}
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          {SEGMENT_KEYS.map((seg) => {
+            const pct = Math.round(shares[seg] * 100);
+            return (
+              <div className="meter" key={seg}>
+                <div className="meter-head">
+                  <span className="name">{SEGMENT_LABELS[seg]}</span>
+                  <span className="val">{pct}% of score</span>
+                </div>
+                <div className="row" style={{ gap: 8 }}>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    style={{ width: 88 }}
+                    value={sw[seg] ?? 0}
+                    onChange={(e) => {
+                      // Clamp on entry: a typed/pasted negative is a valid number
+                      // string the min= attribute doesn't block, and the validator
+                      // rejects <0 with a 400. Match normalizeWeights' tolerance.
+                      const n = Number(e.target.value);
+                      setWeight(seg, Number.isFinite(n) ? Math.max(0, n) : 0);
+                    }}
+                  />
+                  <div className="track" style={{ flex: 1 }}>
+                    <div className="fill" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {usingDefaultWeights && (
+          <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--status-warning)" }}>
+            All five weights are 0, so the score falls back to the Balanced defaults shown above
+            until you raise at least one segment above 0.
+          </p>
+        )}
+        <p className="empty" style={{ margin: "10px 0 0", fontSize: 12 }}>
+          Your daily score now starts at 0 each day and climbs as you log progress in each tab.
+        </p>
       </div>
 
       <div className="row" style={{ marginTop: 16 }}>

@@ -64,7 +64,7 @@ const tools: ToolDef[] = [
   {
     name: "get_daily_score",
     description:
-      "Get the daily health score (0-100) for a date, with the per-component scores (workout, nutrition, sleep, vitamins) and the human-readable breakdown explaining each number. Weights: workout 25%, nutrition 30% (includes water), sleep 25%, vitamins 20%. Defaults to today.",
+      "Get the daily health score (0-100) for a date, with the per-component scores (workout, nutrition, sleep, vitamins, mobility) and the human-readable breakdown explaining each number. The five segment weights are user-customizable per goal (set in Settings) and are returned in the result's `weights` field as integer percents summing to ~100 — quote those actual weights, never assume fixed percentages. Every segment starts at 0 each day and climbs as the user logs progress. Defaults to today.",
     input_schema: {
       type: "object",
       properties: {
@@ -95,6 +95,7 @@ const tools: ToolDef[] = [
           nutrition: d.nutrition,
           sleep: d.sleep,
           vitamins: d.vitamins,
+          mobility: d.mobility,
         })),
         weeklyAverage: h.weeklyAverage,
         monthlyAverage: h.monthlyAverage,
@@ -358,7 +359,9 @@ function buildContext(): string {
       nutrition: score.nutrition,
       sleep: score.sleep,
       vitamins: score.vitamins,
+      mobility: score.mobility,
     },
+    scoreWeights: score.weights,
     breakdown: score.breakdown,
     nutrition: {
       calories: Math.round(n.totals.calories),
@@ -413,7 +416,7 @@ Every turn you receive an auto-injected <context> snapshot of today's live data 
 
 Your job:
 1. Daily combined analysis. Merge all five segments into one clear picture of the day. Lead with the daily score and what is driving it, then what to fix first.
-2. Explain scores exactly. Use get_daily_score's breakdown — the total is a weighted mean: workout 22%, nutrition 28% (includes water), sleep 22%, vitamins 15%, mobility 13%. Quote the real numbers; never invent them.
+2. Explain scores exactly. Use get_daily_score's breakdown and its returned \`weights\` — the total is a weighted mean whose five segment weights are user-set per goal in Settings (nutrition includes water). Quote the actual weights the tool returns (integer percents in \`weights\`); never assume fixed percentages. Every segment starts at 0 each day and climbs with logged progress, so call out any component that's low simply because nothing's been logged yet.
 3. Per-segment recommendations with concrete figures ("drink 900 ml more water", "dinner around 650 kcal with 45 g protein", "you're 40% short on magnesium").
    Energy / caloric balance: you also see a caloric-balance picture via get_energy_balance — baseline burn is the TDEE from the body profile (Mifflin-St Jeor BMR × activity multiplier), plus estimated exercise burn from logged cardio and lifting, all compared against calorie intake. Net = intake − (baseline TDEE + exercise); negative is a deficit, positive a surplus. It needs age, height, and a logged body weight to compute a baseline (hasProfile) — if any are missing, tell the user to add them in Settings and work from intake + exercise burn only. Exercise burn and strength burn are rough estimates; say so. Never invent a net when hasProfile is false.
 4. Cross-segment coordination. For any request spanning segments — a meal that fits the remaining calories AND fills today's micronutrient gaps, adjusting food and training after a heavy meal, fixing bedtime to improve recovery — use the consult_agent tool to task the relevant specialists. Give each specialist a self-contained brief including every constraint you already know (remaining macros, deficient nutrients, tonight's schedule); consult several specialists, in parallel when their tasks are independent. The specialists have full live read access to their segment's data, but during a consultation they only ADVISE — they will not record anything unless your brief explicitly relays a direct user instruction (e.g. "the user asked to log 2 eggs at lunch"). Never turn your own recommendation into a write: recommending a supplement, meal, or plan must NEVER cause it to be created or marked taken/eaten/done — present the plan and let the user decide. If a specialist reports it modified data, tell the user exactly what changed. Then SYNTHESIZE the replies into one coherent, non-contradictory plan in your own words — never paste raw specialist output.

@@ -152,16 +152,40 @@ export default function DashboardPage() {
           </span>
           <span className={`delta ${deltaDir}`}>{deltaText}</span>
         </div>
-        <StatTile label="Workout · 22%" value={score.workout} delta={score.breakdown.workout} />
         <StatTile
-          label="Nutrition · 28%"
+          label={`Workout · ${score.weights.workout}%`}
+          value={score.workout}
+          delta={score.breakdown.workout}
+        />
+        <StatTile
+          label={`Nutrition · ${score.weights.nutrition}%`}
           value={score.nutrition}
           delta={[score.breakdown.nutrition, score.breakdown.water].filter(Boolean).join(" ")}
         />
-        <StatTile label="Sleep · 22%" value={score.sleep} delta={score.breakdown.sleep} />
-        <StatTile label="Vitamins · 15%" value={score.vitamins} delta={score.breakdown.vitamins} />
-        <StatTile label="Mobility · 13%" value={score.mobility} delta={score.breakdown.mobility} />
+        <StatTile
+          label={`Sleep · ${score.weights.sleep}%`}
+          value={score.sleep}
+          delta={score.breakdown.sleep}
+        />
+        <StatTile
+          label={`Vitamins · ${score.weights.vitamins}%`}
+          value={score.vitamins}
+          delta={score.breakdown.vitamins}
+        />
+        <StatTile
+          label={`Mobility · ${score.weights.mobility}%`}
+          value={score.mobility}
+          delta={score.breakdown.mobility}
+        />
       </div>
+      <p className="page-sub" style={{ marginTop: 8 }}>
+        Each segment starts at 0 each day and climbs as you log. The % on each tile is that
+        segment's weight in your total — weighted by your goal (edit in{" "}
+        <Link to="/settings" style={{ color: "var(--series-1)" }}>
+          Settings
+        </Link>
+        ).
+      </p>
 
       {/* Energy balance: intake vs baseline (TDEE) + exercise burn */}
       <h2 className="section-title">Energy balance</h2>

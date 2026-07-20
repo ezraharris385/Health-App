@@ -1053,6 +1053,7 @@ interface StretchFormState {
 }
 
 function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) {
+  const [expanded, setExpanded] = useState(false);
   const [form, setForm] = useState<StretchFormState | null>(null);
   const [detail, setDetail] = useState<Stretch | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1146,20 +1147,56 @@ function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) 
   return (
     <div className="card">
       <div className="row between">
-        <h3>Stretch bank</h3>
-        {!form && (
+        {/* Heading wraps the button (not vice-versa) so the section stays a real
+            <h3> in the a11y heading outline; the button is native and keeps its
+            :focus-visible ring by resetting styles explicitly instead of all:unset.
+            Disabled while an async op is in flight so it can't be collapsed
+            mid-operation (which would unmount the error message below). */}
+        <h3 style={{ margin: 0, flex: 1 }}>
           <button
-            className="btn small primary"
-            onClick={() => {
-              setError(null);
-              setForm(emptyForm());
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            disabled={busy}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              margin: 0,
+              font: "inherit",
+              color: "inherit",
+              textAlign: "left",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              width: "100%",
             }}
           >
-            New stretch
+            {expanded ? "▾" : "▸"} Stretch bank ({props.stretches.length})
           </button>
-        )}
+        </h3>
+        <div className="row" style={{ gap: 8, alignItems: "center" }}>
+          {!form && (
+            <button
+              className="btn small primary"
+              onClick={() => {
+                setError(null);
+                setForm(emptyForm());
+                setExpanded(true);
+              }}
+            >
+              New stretch
+            </button>
+          )}
+          <button className="btn small" disabled={busy} onClick={() => setExpanded((v) => !v)}>
+            {expanded ? "Hide" : "Show"}
+          </button>
+        </div>
       </div>
 
+      {expanded && (
+        <>
       {props.stretches.length === 0 && !form && (
         <p className="empty">
           No stretches yet. Add the moves you actually do — hamstring stretch, downward dog,
@@ -1409,6 +1446,8 @@ function StretchBankCard(props: { stretches: Stretch[]; onChange: () => void }) 
       )}
 
       {error && <p className="error-text">{error}</p>}
+        </>
+      )}
     </div>
   );
 }

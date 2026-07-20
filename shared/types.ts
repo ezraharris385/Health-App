@@ -35,6 +35,13 @@ export interface Settings {
   goals: UserGoals;
   /** Per-nutrient daily target overrides, keyed by NutrientKey */
   nutrientTargetOverrides: Partial<Record<string, number>>;
+  /**
+   * Raw daily-score segment weights (points). Normalized to fractions at
+   * scoring time by shared/data/scoreWeights.ts.
+   */
+  scoreWeights: Record<"workout" | "nutrition" | "sleep" | "vitamins" | "mobility", number>;
+  /** Selected goal preset key (a SCORE_PRESETS key) or 'custom'. */
+  scoreGoalPreset?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -449,6 +456,11 @@ export interface DailyScore {
   sleep: number;
   vitamins: number;
   mobility: number;
+  /**
+   * Normalized segment weights actually used for this total, as integer
+   * percents (from normalizeWeights × 100 rounded); they sum to ~100.
+   */
+  weights: { workout: number; nutrition: number; sleep: number; vitamins: number; mobility: number };
   breakdown: Record<string, string>; // human-readable explanation per component
 }
 

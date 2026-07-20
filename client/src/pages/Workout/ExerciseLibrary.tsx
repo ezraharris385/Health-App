@@ -12,6 +12,7 @@ function truncate(s: string, n = 42): string {
  *  intensity + goal recommendations, form instructions, notes. */
 export function ExerciseLibrary(props: { exercises: Exercise[]; onChange: () => void }) {
   const { exercises, onChange } = props;
+  const [expanded, setExpanded] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [muscles, setMuscles] = useState("");
@@ -97,16 +98,50 @@ export function ExerciseLibrary(props: { exercises: Exercise[]; onChange: () => 
 
   return (
     <div className="card">
-      <div className="row between">
-        <h3>Exercise library</h3>
-        {editingId !== null && (
-          <span className="chip" style={{ color: "var(--status-warning)" }}>
-            editing
+      {/* Heading wraps the button (not vice-versa) so the section stays a real
+          <h3> in the a11y heading outline; the button is native and keeps its
+          :focus-visible ring by resetting styles explicitly instead of all:unset.
+          Disabled while an async CRUD is in flight so it can't be collapsed
+          mid-operation (which would unmount the error message below). */}
+      <h3 style={{ margin: 0 }}>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          disabled={busy}
+          style={{
+            background: "none",
+            border: "none",
+            padding: 0,
+            margin: 0,
+            font: "inherit",
+            color: "inherit",
+            textAlign: "left",
+            boxSizing: "border-box",
+            cursor: "pointer",
+            display: "flex",
+            width: "100%",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <span>
+            {expanded ? "▾" : "▸"} Exercise library ({exercises.length})
           </span>
-        )}
-      </div>
+          <span className="row" style={{ gap: 8, alignItems: "center" }}>
+            {editingId !== null && (
+              <span className="chip" style={{ color: "var(--status-warning)" }}>
+                editing
+              </span>
+            )}
+            <span className="chip">{expanded ? "Hide" : "Show"}</span>
+          </span>
+        </button>
+      </h3>
 
-      <div className="stack">
+      {expanded && (
+        <>
+          <div className="stack" style={{ marginTop: 12 }}>
         <div className="row wrap">
           <input
             className="input"
@@ -290,7 +325,9 @@ export function ExerciseLibrary(props: { exercises: Exercise[]; onChange: () => 
             </table>
           </div>
         )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

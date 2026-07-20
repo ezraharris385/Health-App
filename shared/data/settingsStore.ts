@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { DEFAULT_SCORE_WEIGHTS } from "./scoreWeights";
 import type { Settings, UserGoals, UserProfile } from "../types";
 
 const DEFAULT_GOALS: UserGoals = {
@@ -31,6 +32,8 @@ export function getSettings(): Settings {
     profile: { ...DEFAULT_PROFILE, ...(stored.profile ?? {}) },
     goals: { ...DEFAULT_GOALS, ...(stored.goals ?? {}) },
     nutrientTargetOverrides: stored.nutrientTargetOverrides ?? {},
+    scoreWeights: { ...DEFAULT_SCORE_WEIGHTS, ...(stored.scoreWeights ?? {}) },
+    scoreGoalPreset: stored.scoreGoalPreset ?? "balanced",
   };
 }
 
@@ -43,6 +46,8 @@ export function saveSettings(patch: Partial<Settings>): Settings {
       ...current.nutrientTargetOverrides,
       ...(patch.nutrientTargetOverrides ?? {}),
     },
+    scoreWeights: { ...current.scoreWeights, ...(patch.scoreWeights ?? {}) },
+    scoreGoalPreset: patch.scoreGoalPreset ?? current.scoreGoalPreset,
   };
   db.prepare(
     "INSERT INTO settings (key, value) VALUES ('app', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",

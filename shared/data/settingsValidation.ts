@@ -4,6 +4,7 @@
  * Throws SettingsError with a clear message; callers map it to a 400.
  */
 import { NUTRIENT_BY_KEY } from "../nutrients";
+import { SCORE_PRESETS, SEGMENT_KEYS } from "./scoreWeights";
 import type { Settings } from "../types";
 
 export class SettingsError extends Error {}
@@ -87,6 +88,29 @@ export function validateSettingsPatch(patch: Partial<Settings>): void {
       if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value <= 0)) {
         throw new SettingsError(`Override for ${key} must be a positive number (or null to clear)`);
       }
+    }
+  }
+  if (patch.scoreWeights !== undefined) {
+    const sw = patch.scoreWeights;
+    if (typeof sw !== "object" || sw === null || Array.isArray(sw)) {
+      throw new SettingsError("scoreWeights must be an object");
+    }
+    const allowed = new Set<string>(SEGMENT_KEYS);
+    for (const [key, value] of Object.entries(sw as Record<string, unknown>)) {
+      if (!allowed.has(key)) throw new SettingsError(`Unknown score segment "${key}"`);
+      // normalizeWeights handles the all-zero case, so 0 is accepted here.
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        throw new SettingsError(`scoreWeights.${key} must be a finite number >= 0`);
+      }
+    }
+  }
+  if (patch.scoreGoalPreset !== undefined) {
+    if (typeof patch.scoreGoalPreset !== "string") {
+      throw new SettingsError("scoreGoalPreset must be a string");
+    }
+    const validPresets = [...Object.keys(SCORE_PRESETS), "custom"];
+    if (!validPresets.includes(patch.scoreGoalPreset)) {
+      throw new SettingsError(`scoreGoalPreset must be one of: ${validPresets.join(", ")}`);
     }
   }
 }

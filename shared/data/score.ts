@@ -1,12 +1,15 @@
 /**
- * Daily health score engine. Each component is 0-100; the total is a weighted
- * mean. Formulas are deliberately simple and documented so the master agent
- * (and the user) can explain any number.
- *
- * Weights: workout 22%, nutrition 28% (incl. water), sleep 22%, vitamins 15%, mobility 13%.
+ * Daily health score engine. Each component is 0-100 and starts at 0 each day,
+ * climbing as the user logs progress. The total is a weighted mean whose segment
+ * weights are user-customizable (goal-based presets, see shared/data/scoreWeights.ts).
+ * Formulas are deliberately simple and documented so the master agent (and the
+ * user) can explain any number. The default "balanced" weights are workout 22,
+ * nutrition 28 (incl. water), sleep 22, vitamins 15, mobility 13 — but never
+ * assume them; DailyScore.weights carries the normalized percents actually used.
  */
 import { daysAgoStr, dateRange, todayStr } from "./db";
 import { getSettings } from "./settingsStore";
+import { effectiveWeights } from "./scoreWeights";
 import {
   getMobilityDaySummary,
   getNutritionSummary,
@@ -16,28 +19,26 @@ import {
 } from "./summaries";
 import type { DailyScore, ScoreHistory } from "../types";
 
-const WEIGHTS = { workout: 0.22, nutrition: 0.28, sleep: 0.22, vitamins: 0.15, mobility: 0.13 };
-
 export function computeDailyScore(date: string): DailyScore {
   const breakdown: Record<string, string> = {};
   const goals = getSettings().goals;
 
-  // --- Workout: full credit for any completed training; scheduled-but-skipped
-  // days are penalized; true rest days (nothing scheduled) score well.
+  // --- Workout: starts at 0, climbs with logged training. An "activity" is a
+  // lifting session with real work (completed or ≥1 set) or any cardio session:
+  // 1 activity = 70, 2 = 85, 3+ = 100.
   const w = getWorkoutDaySummary(date);
-  const trained = w.sessions.length > 0 || w.cardio.length > 0;
+  const liftingCount = w.sessions.filter((s) => s.completedAt != null || s.setCount > 0).length;
+  const cardioCount = w.cardio.length;
+  const activities = liftingCount + cardioCount;
   let workout: number;
-  if (trained) {
-    workout = 100;
-    breakdown.workout = `Trained: ${w.sessions.length} lifting session(s), ${w.cardio.length} cardio session(s).`;
-  } else if (w.scheduledPlanDays.length > 0) {
-    workout = 25;
-    breakdown.workout = `Scheduled workout (${w.scheduledPlanDays
-      .map((d) => d.name)
-      .join(", ")}) not logged.`;
+  if (activities === 0) {
+    workout = 0;
+    breakdown.workout = w.scheduledPlanDays.length
+      ? "Scheduled training not logged yet — score climbs as you train."
+      : "No training logged yet — score climbs as you train.";
   } else {
-    workout = 85;
-    breakdown.workout = "Rest day (nothing scheduled).";
+    workout = Math.min(100, 70 + 15 * (activities - 1));
+    breakdown.workout = `${liftingCount} lifting session(s), ${cardioCount} cardio session(s).`;
   }
 
   // --- Nutrition: 70% food adherence + 30% water.
@@ -83,24 +84,32 @@ export function computeDailyScore(date: string): DailyScore {
       : v.coverage.reduce((acc, c) => acc + c.percent, 0) / v.coverage.length;
   breakdown.vitamins = `Average micronutrient coverage ${Math.round(vitamins)}% across ${v.coverage.length} tracked nutrients.`;
 
-  // --- Mobility: any stretching/yoga/posture session earns full credit; it's a
-  // daily habit (no rest-day concept), so nothing logged scores a low baseline.
+  // --- Mobility: starts at 0, climbs with logged minutes; 15+ min = 100.
   const m = getMobilityDaySummary(date);
   let mobility: number;
-  if (m.sessions.length > 0) {
-    mobility = 100;
-    breakdown.mobility = `${m.sessions.length} mobility session(s), ${m.totalMinutes} min total.`;
+  if (m.sessions.length === 0) {
+    mobility = 0;
+    breakdown.mobility = "No mobility logged yet.";
   } else {
-    mobility = 45;
-    breakdown.mobility = "No stretching/yoga/posture logged.";
+    mobility = Math.min(100, Math.round((100 * m.totalMinutes) / 15));
+    breakdown.mobility = `${m.sessions.length} mobility session(s), ${m.totalMinutes} min total.`;
   }
 
+  // Weighted total using the user's (normalized) segment weights.
+  const frac = effectiveWeights(getSettings());
   const total =
-    WEIGHTS.workout * workout +
-    WEIGHTS.nutrition * nutrition +
-    WEIGHTS.sleep * sleep +
-    WEIGHTS.vitamins * vitamins +
-    WEIGHTS.mobility * mobility;
+    frac.workout * workout +
+    frac.nutrition * nutrition +
+    frac.sleep * sleep +
+    frac.vitamins * vitamins +
+    frac.mobility * mobility;
+  const weights = {
+    workout: Math.round(frac.workout * 100),
+    nutrition: Math.round(frac.nutrition * 100),
+    sleep: Math.round(frac.sleep * 100),
+    vitamins: Math.round(frac.vitamins * 100),
+    mobility: Math.round(frac.mobility * 100),
+  };
 
   return {
     date,
@@ -110,6 +119,7 @@ export function computeDailyScore(date: string): DailyScore {
     sleep: Math.round(sleep),
     vitamins: Math.round(vitamins),
     mobility: Math.round(mobility),
+    weights,
     breakdown,
   };
 }
