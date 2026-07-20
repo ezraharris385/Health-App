@@ -167,11 +167,13 @@ body {
   height: 21px;
   flex-shrink: 0;
   display: inline-flex;
-  color: var(--muted);
-  transition: color 0.15s ease;
+  color: var(--nav-color, var(--accent));
+  opacity: 0.68;
+  transition: opacity 0.15s ease;
 }
 .navlink .nav-ico svg { width: 100%; height: 100%; }
-.navlink.active .nav-ico { color: var(--nav-color, var(--accent)); }
+.navlink:hover .nav-ico { opacity: 0.85; }
+.navlink.active .nav-ico { color: var(--nav-color, var(--accent)); opacity: 1; }
 .sidebar .spacer { flex: 1; }
 
 .main {
@@ -426,8 +428,8 @@ table.data tbody tr:hover { background: color-mix(in srgb, var(--ink) 3%, transp
   }
   .navlink:hover { background: none; }
   .navlink.active { background: none; color: var(--nav-color, var(--accent)); }
-  .navlink .nav-ico { width: 23px; height: 23px; }
-  .navlink.active .nav-ico { color: var(--nav-color, var(--accent)); }
+  .navlink .nav-ico { width: 23px; height: 23px; opacity: 0.7; }
+  .navlink.active .nav-ico { color: var(--nav-color, var(--accent)); opacity: 1; }
   .main {
     padding: calc(16px + env(safe-area-inset-top)) 14px calc(100px + env(safe-area-inset-bottom));
     max-width: 100%;
