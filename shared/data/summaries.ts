@@ -273,6 +273,7 @@ export function getVitaminSummary(date: string): DailyVitaminSummary {
       key: n.key,
       label: n.label,
       unit: n.unit,
+      group: n.group,
       target,
       consumed,
       fromFood: food,

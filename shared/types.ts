@@ -388,6 +388,8 @@ export interface NutrientDef {
   unit: string; // "mg"
   dailyTarget: number; // default adult daily target
   upperLimit: number | null;
+  /** Display grouping, e.g. "Vitamins", "Minerals", "Brain & fatty acids". */
+  group: string;
 }
 
 export interface Supplement {
@@ -419,6 +421,7 @@ export interface NutrientCoverage {
   key: string;
   label: string;
   unit: string;
+  group: string;
   target: number;
   consumed: number; // total from food micros + supplements
   fromFood: number;

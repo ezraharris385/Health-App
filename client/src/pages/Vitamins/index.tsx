@@ -14,6 +14,7 @@ import {
 import { AgentChat } from "../../components/AgentChat";
 import { ChartCard, HistoryBars, Meter, StatTile, TrendLine } from "../../viz/ChartKit";
 import { SupplementManager, contentsSummary } from "./SupplementManager";
+import { NUTRIENT_GROUP_ORDER } from "@shared/nutrients";
 
 const HISTORY_DAYS = 30;
 
@@ -60,6 +61,22 @@ export default function VitaminsPage() {
       : Math.round(coverage.reduce((a, c) => a + c.percent, 0) / coverage.length);
   const fullyCovered = coverage.filter((c) => c.percent >= 100).length;
   const worst = coverage[0];
+  // Group the (already worst-first) coverage rows by their nutrient group,
+  // ordered with brain/fatty-acid nutrients surfaced first. Unknown groups
+  // fall to the end so nothing is ever dropped.
+  const coverageGroups = useMemo(() => {
+    const byGroup = new Map<string, typeof coverage>();
+    for (const c of coverage) {
+      const arr = byGroup.get(c.group) ?? [];
+      arr.push(c);
+      byGroup.set(c.group, arr);
+    }
+    const ordered = [
+      ...NUTRIENT_GROUP_ORDER.filter((g) => byGroup.has(g)),
+      ...[...byGroup.keys()].filter((g) => !NUTRIENT_GROUP_ORDER.includes(g)),
+    ];
+    return ordered.map((group) => ({ group, items: byGroup.get(group)! }));
+  }, [coverage]);
   const takenIds = useMemo(
     () => new Set((summary?.supplementsTaken ?? []).map((t) => t.supplementId)),
     [summary],
@@ -128,7 +145,7 @@ export default function VitaminsPage() {
         <div className="card">
           <h3>Today's coverage</h3>
           <div className="card-sub" style={{ marginTop: 0 }}>
-            Worst-first · consumed/target · food + supplement split
+            Grouped · worst-first · consumed/target · food + supplement split
           </div>
           {coverage.length === 0 ? (
             <p className="empty">No tracked nutrients configured.</p>
@@ -140,13 +157,20 @@ export default function VitaminsPage() {
                   and tick off supplements below.
                 </p>
               )}
-              {coverage.map((c) => (
-                <Meter
-                  key={c.key}
-                  label={c.label}
-                  percent={c.percent}
-                  detail={`${fmtAmt(c.consumed)}/${fmtAmt(c.target)} ${c.unit} · food ${fmtAmt(c.fromFood)} + supp ${fmtAmt(c.fromSupplements)}`}
-                />
+              {coverageGroups.map((g) => (
+                <div key={g.group} className="stack" style={{ gap: 10 }}>
+                  <div className="section-title" style={{ margin: "2px 0 0" }}>
+                    {g.group}
+                  </div>
+                  {g.items.map((c) => (
+                    <Meter
+                      key={c.key}
+                      label={c.label}
+                      percent={c.percent}
+                      detail={`${fmtAmt(c.consumed)}/${fmtAmt(c.target)} ${c.unit} · food ${fmtAmt(c.fromFood)} + supp ${fmtAmt(c.fromSupplements)}`}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
           )}
