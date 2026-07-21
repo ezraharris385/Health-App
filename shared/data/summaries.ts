@@ -91,6 +91,7 @@ export function mapCardio(r: any): CardioSession {
     type: r.type,
     activityLabel: r.activity_label ?? "",
     distanceKm: r.distance_km,
+    distanceEstimated: r.distance_estimated === 1 || r.distance_estimated === true,
     durationMinutes: r.duration_minutes,
     intensity: r.intensity,
     steps: r.steps,
@@ -473,6 +474,75 @@ export function estimateSteps(
     default:
       return { run: 0, walked: 0 };
   }
+}
+
+/**
+ * Inverse of estimateSteps: estimate the distance (km) covered from a step
+ * count, using the same stride heuristics. Only foot activities
+ * (run/jog/walk/interval) map steps → distance; every other type returns 0
+ * (steps don't imply a distance on a bike/rower). An explicit run/walk split is
+ * honored (and scaled to a manual total when one is also given, so the derived
+ * distance matches the authoritative headline count); a lone total is split by
+ * type as the exact inverse of estimateSteps (run/jog → all running, walk → all
+ * walking, interval → the step ratio produced by a 60/40 distance split).
+ */
+export function estimateDistanceKm(
+  type: CardioSession["type"],
+  steps: { stepsRun?: number | null; stepsWalked?: number | null; total?: number | null },
+): number {
+  const FOOT = ["run", "jog", "walk", "interval"];
+  if (!FOOT.includes(type)) return 0;
+  const RUN_STRIDE = 0.95;
+  const JOG_STRIDE = 0.85;
+  const WALK_STRIDE = 0.7;
+  const run = steps.stepsRun ?? 0;
+  const walked = steps.stepsWalked ?? 0;
+  const total = steps.total ?? 0;
+  let runSteps = 0;
+  let walkSteps = 0;
+  if (run > 0 || walked > 0) {
+    // Explicit split wins. When a manual total is ALSO recorded it is the
+    // authoritative headline count (see cardioTotalSteps), so scale the split up
+    // to it — otherwise a partial split (e.g. only steps-walked filled in) would
+    // silently drop the unaccounted steps and derive a distance that describes
+    // less activity than the recorded total.
+    runSteps = run;
+    walkSteps = walked;
+    const splitTotal = run + walked;
+    if (total > 0 && splitTotal > 0) {
+      const scale = total / splitTotal;
+      runSteps *= scale;
+      walkSteps *= scale;
+    }
+  } else if (total > 0) {
+    switch (type) {
+      case "run":
+      case "jog":
+        runSteps = total;
+        break;
+      case "walk":
+        walkSteps = total;
+        break;
+      case "interval": {
+        // estimateSteps splits the DISTANCE 60/40, which — via the run/walk
+        // strides — maps to a STEP split of (0.6/RUN):(0.4/WALK), not 60/40.
+        // Invert with those same step fractions so estimateDistanceKm is a true
+        // inverse of estimateSteps for a lone total (splitting the steps 60/40
+        // would overstate distance by ~2.3%).
+        const runShare = 0.6 / RUN_STRIDE;
+        const walkShare = 0.4 / WALK_STRIDE;
+        const runFraction = runShare / (runShare + walkShare);
+        runSteps = total * runFraction;
+        walkSteps = total * (1 - runFraction);
+        break;
+      }
+    }
+  } else {
+    return 0;
+  }
+  const runStride = type === "jog" ? JOG_STRIDE : RUN_STRIDE;
+  const meters = runSteps * runStride + walkSteps * WALK_STRIDE;
+  return Math.round((meters / 1000) * 1000) / 1000; // km, 3 decimals
 }
 
 // ---------------------------------------------------------------------------

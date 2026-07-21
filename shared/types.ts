@@ -174,6 +174,11 @@ export interface CardioSession {
   /** Free-text label for the activity (esp. useful for type 'other') */
   activityLabel: string;
   distanceKm: number;
+  /** True when distanceKm was auto-derived from steps (no distance was entered),
+   *  rather than measured/entered by the user. Lets the editor reopen a
+   *  steps-only session in steps mode instead of treating the estimate as a
+   *  real distance. */
+  distanceEstimated: boolean;
   durationMinutes: number;
   intensity: number; // 1-10
   /** Manually entered ("hardcoded") total steps; null = use estimates */

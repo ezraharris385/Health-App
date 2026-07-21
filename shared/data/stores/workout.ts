@@ -9,7 +9,7 @@
  * imports them directly so routes and agent tools always agree.
  */
 import { db, daysAgoStr, dateRange, isValidDateStr, todayStr } from "../db";
-import { estimateSteps, getWorkoutDaySummary, mapCardio } from "../summaries";
+import { estimateDistanceKm, estimateSteps, getWorkoutDaySummary, mapCardio } from "../summaries";
 import type {
   CardioSession,
   CardioType,
@@ -1335,17 +1335,30 @@ export function createCardio(input: {
       "a cardio session needs at least one of: distance, duration, steps, stepsRun, or stepsWalked",
     );
   }
+  // Auto-populate distance from steps for a steps-only entry (no distance given)
+  // — never overrides a distance the user actually entered. Flag a derived
+  // distance so the editor can tell it apart from a measured one.
+  let finalDistanceKm = distanceKm;
+  let distanceEstimated = false;
+  if (finalDistanceKm === 0) {
+    const derived = estimateDistanceKm(type, { stepsRun, stepsWalked, total: steps });
+    if (derived > 0) {
+      finalDistanceKm = derived;
+      distanceEstimated = true;
+    }
+  }
   const info = db
     .prepare(
       `INSERT INTO cardio_sessions
-         (date, type, activity_label, distance_km, duration_minutes, intensity, steps, estimated_steps_run, estimated_steps_walked, report, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (date, type, activity_label, distance_km, distance_estimated, duration_minutes, intensity, steps, estimated_steps_run, estimated_steps_walked, report, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       date,
       type,
       optStr(input.activityLabel),
-      distanceKm,
+      finalDistanceKm,
+      distanceEstimated ? 1 : 0,
       durationMinutes,
       intensity,
       steps,
@@ -1404,7 +1417,10 @@ export function updateCardio(
   // re-estimate from distance when type/distance changed; else keep as-is so an
   // unrelated edit (e.g. attaching a report) doesn't wipe hand-entered counts.
   const auto = estimateSteps(type, distanceKm);
-  const recompute = patch.type !== undefined || patch.distanceKm !== undefined;
+  // Re-estimate steps from distance only when there IS a distance to estimate
+  // from — clearing distance to 0 must not wipe hand-entered/derived steps
+  // (those become the source of truth for a steps-only session).
+  const recompute = (patch.type !== undefined || patch.distanceKm !== undefined) && distanceKm > 0;
   let estRun = current.estimatedStepsRun ?? 0;
   let estWalked = current.estimatedStepsWalked ?? 0;
   if (patch.stepsRun !== undefined) {
@@ -1429,15 +1445,50 @@ export function updateCardio(
       "a cardio session needs at least one of: distance, duration, steps, stepsRun, or stepsWalked",
     );
   }
+  // Auto-populate distance from steps when the session carries no *entered*
+  // distance. A distance that was itself derived (distanceEstimated) does not
+  // count as entered, so re-deriving keeps a steps-only session consistent; a
+  // real entered distance is left untouched.
+  const enteredDistanceKm =
+    patch.distanceKm !== undefined
+      ? distanceKm // whatever the user just typed (0 = cleared the field)
+      : current.distanceEstimated
+        ? 0 // the stored value was an estimate, not something the user entered
+        : current.distanceKm;
+  let finalDistanceKm = enteredDistanceKm;
+  let distanceEstimated = false;
+  if (enteredDistanceKm === 0) {
+    // Only derive when this edit actually touched distance or steps, or the
+    // session was already a steps-derived one — so an unrelated edit (report,
+    // notes, intensity, date) never silently fabricates a distance on a
+    // distance-less row that happens to carry steps.
+    const touchedDistanceOrSteps =
+      patch.distanceKm !== undefined ||
+      patch.steps !== undefined ||
+      patch.stepsRun !== undefined ||
+      patch.stepsWalked !== undefined;
+    if (touchedDistanceOrSteps || current.distanceEstimated) {
+      const derived = estimateDistanceKm(type, {
+        stepsRun: estRun,
+        stepsWalked: estWalked,
+        total: steps,
+      });
+      if (derived > 0) {
+        finalDistanceKm = derived;
+        distanceEstimated = true;
+      }
+    }
+  }
   db.prepare(
-    `UPDATE cardio_sessions SET date = ?, type = ?, activity_label = ?, distance_km = ?, duration_minutes = ?,
+    `UPDATE cardio_sessions SET date = ?, type = ?, activity_label = ?, distance_km = ?, distance_estimated = ?, duration_minutes = ?,
        intensity = ?, steps = ?, estimated_steps_run = ?, estimated_steps_walked = ?, report = ?, notes = ?
      WHERE id = ?`,
   ).run(
     patch.date !== undefined ? normDate(patch.date) : current.date,
     type,
     patch.activityLabel !== undefined ? optStr(patch.activityLabel) : current.activityLabel,
-    distanceKm,
+    finalDistanceKm,
+    distanceEstimated ? 1 : 0,
     durationMinutes,
     intensity,
     steps,

@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS cardio_sessions (
   type TEXT NOT NULL CHECK (type IN ('run','jog','walk','interval','hiit','cycling','rowing','elliptical','other')),
   activity_label TEXT NOT NULL DEFAULT '',
   distance_km REAL NOT NULL DEFAULT 0,
+  distance_estimated INTEGER NOT NULL DEFAULT 0,  -- 1 = distance auto-derived from steps
   duration_minutes REAL NOT NULL DEFAULT 0,
   intensity INTEGER NOT NULL DEFAULT 5,
   steps INTEGER,                     -- manually entered total; NULL = use estimates
@@ -413,6 +414,14 @@ export function applySchema(): void {
       `);
     })();
   }
+  // Cardio — marks whether distance_km was auto-derived from steps vs. entered.
+  // Added AFTER the rebuild above so it lands on the final table in every path
+  // (fresh SCHEMA_SQL already has it → no-op; rebuilt/legacy tables get it here).
+  addColumn(
+    "cardio_sessions",
+    "distance_estimated",
+    "distance_estimated INTEGER NOT NULL DEFAULT 0",
+  );
 }
 
 // ---------------------------------------------------------------------------

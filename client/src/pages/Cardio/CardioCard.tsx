@@ -3,6 +3,7 @@ import type { CardioSession, CardioType } from "@shared/types";
 import { todayStr } from "../../api/http";
 import { cardioTotalSteps, workoutApi, type CardioInput } from "../../api/workout";
 import { kmFromMi, miFromKm } from "../../units";
+import { estimateDistanceKm, estimateSteps } from "@shared/data/summaries";
 import {
   CARDIO_TYPES,
   CARDIO_TYPE_LABEL,
@@ -12,6 +13,13 @@ import {
 type Mode = "distance" | "steps";
 
 /** Parse a text input into a non-negative number, or null when blank/invalid. */
+/** Format minutes-per-mile as "M:SS". */
+function fmtPace(minPerMile: number): string {
+  const m = Math.floor(minPerMile);
+  const s = Math.round((minPerMile - m) * 60);
+  return s === 60 ? `${m + 1}:00` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
 function num(v: string): number | null {
   if (v.trim() === "") return null;
   const n = Number(v);
@@ -57,14 +65,21 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
   }
 
   function loadForEdit(c: CardioSession) {
-    const distanceMode = c.distanceKm > 0 || c.durationMinutes > 0;
+    // A distance that was auto-derived from steps is not a "real" distance —
+    // reopen those steps-only sessions in steps mode so the run/walk split is
+    // editable (and preserved on save) instead of being clobbered by a
+    // distance-mode round-trip.
+    const hasRealDistance = c.distanceKm > 0 && !c.distanceEstimated;
+    const distanceMode = hasRealDistance || c.durationMinutes > 0;
     setEditingId(c.id);
     setMode(distanceMode ? "distance" : "steps");
     setDate(c.date);
     setType(c.type);
     setActivityLabel(c.activityLabel);
-    // Stored canonical km -> shown/edited in miles.
-    setDistance(c.distanceKm > 0 ? String(Math.round(miFromKm(c.distanceKm) * 100) / 100) : "");
+    // Stored canonical km -> shown/edited in miles. A derived distance is left
+    // blank so switching into distance mode doesn't present an estimate as if
+    // the user had entered it.
+    setDistance(hasRealDistance ? String(Math.round(miFromKm(c.distanceKm) * 100) / 100) : "");
     setDuration(c.durationMinutes > 0 ? String(Math.round(c.durationMinutes)) : "");
     setIntensity(String(c.intensity));
     setStepsTotal(c.steps === null ? "" : String(c.steps));
@@ -147,6 +162,33 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
   }
 
   const recent = cardio.slice(0, 8);
+
+  // Live conversion previews so entered data populates the other fields:
+  // steps → estimated miles (steps-only mode), and distance → estimated steps +
+  // pace (distance mode). These mirror the auto-fill the store performs on save.
+  const stepsPreviewKm = estimateDistanceKm(type, {
+    stepsRun: num(stepsRun),
+    stepsWalked: num(stepsWalked),
+    total: num(stepsTotal),
+  });
+  const distanceHint =
+    mode === "steps" && stepsPreviewKm > 0
+      ? `≈ ${miFromKm(stepsPreviewKm).toFixed(2)} mi — auto-filled as your distance`
+      : null;
+
+  let stepsHint: string | null = null;
+  if (mode === "distance") {
+    const miVal = num(distance);
+    const durVal = num(duration);
+    const parts: string[] = [];
+    if (miVal !== null && miVal > 0) {
+      const est = estimateSteps(type, kmFromMi(miVal));
+      const total = est.run + est.walked;
+      if (total > 0) parts.push(`≈ ${total.toLocaleString()} steps`);
+      if (durVal !== null && durVal > 0) parts.push(`${fmtPace(durVal / miVal)} /mi`);
+    }
+    stepsHint = parts.length > 0 ? parts.join(" · ") : null;
+  }
 
   return (
     <div className="card">
@@ -259,6 +301,11 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
                 onChange={(e) => setStepsTotal(e.target.value)}
               />
             </label>
+            {stepsHint && (
+              <div className="chip" style={{ alignSelf: "center" }}>
+                {stepsHint}
+              </div>
+            )}
           </div>
         ) : (
           <div className="stack" style={{ gap: 8 }}>
@@ -315,6 +362,11 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
                 />
               </label>
             </div>
+            {distanceHint && (
+              <div className="chip" style={{ alignSelf: "flex-start" }}>
+                {distanceHint}
+              </div>
+            )}
           </div>
         )}
 
