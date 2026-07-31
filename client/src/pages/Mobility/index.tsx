@@ -113,6 +113,16 @@ export default function MobilityPage() {
     () => history.map((p) => ({ date: p.date.slice(5), minutes: p.totalMinutes })),
     [history],
   );
+  // History is zero-filled per day, oldest -> newest, ending today. Count how
+  // many of the 6 days BEFORE today had any mobility work (for the tiles'
+  // "nothing yet today" context line).
+  const loggedOfLast6 = useMemo(
+    () => history.slice(-7, -1).filter((p) => p.totalMinutes > 0).length,
+    [history],
+  );
+  // Pre-fill the quick log with the last session's minutes (a real value, not
+  // a placeholder). Sessions arrive newest first.
+  const defaultMinutes = sessions[0]?.durationMinutes ?? 15;
 
   const byKindText = useMemo(() => {
     if (!summary) return undefined;
@@ -136,28 +146,63 @@ export default function MobilityPage() {
       <div className="grid cols-3">
         <StatTile
           label="Sessions today"
-          value={summary?.sessions.length ?? 0}
-          delta={byKindText}
+          value={(summary?.sessions.length ?? 0) > 0 ? summary!.sessions.length : "— none yet"}
+          delta={
+            (summary?.sessions.length ?? 0) > 0
+              ? byKindText
+              : `logged ${loggedOfLast6} of the last 6 days`
+          }
         />
-        <StatTile label="Minutes today" value={summary?.totalMinutes ?? 0} />
+        <StatTile
+          label="Minutes today"
+          value={(summary?.totalMinutes ?? 0) > 0 ? summary!.totalMinutes : "— none yet"}
+          delta={
+            (summary?.totalMinutes ?? 0) > 0
+              ? undefined
+              : `logged ${loggedOfLast6} of the last 6 days`
+          }
+        />
         <StatTile
           label="Metrics tracked"
-          value={summary?.metricsLatest.length ?? 0}
-          delta="active metrics"
+          value={(summary?.metricsLatest.length ?? 0) > 0 ? summary!.metricsLatest.length : "— none yet"}
+          delta={(summary?.metricsLatest.length ?? 0) > 0 ? "active metrics" : "add one below"}
         />
       </div>
 
+      {/* Page order (top -> bottom on a phone): log a session, routines
+          (Follow lives there), rate your metrics, recent sessions, trend
+          charts, stretch bank, coach. minWidth: 0 on grid children lets cards
+          with nowrap tables shrink below content width (table scrolls inside
+          its card instead of widening the page past 390px). */}
       <div className="grid cols-2" style={{ marginTop: 14 }}>
-        <SessionLogCard routines={activeRoutines} onChange={loadAll} />
-        <MetricsCard
-          metrics={metrics}
-          latestByMetric={latestByMetric}
-          lastAssessmentByMetric={lastAssessmentByMetric}
-          onChange={loadAll}
-        />
+        <div style={{ minWidth: 0 }}>
+          <SessionLogCard
+            routines={activeRoutines}
+            defaultMinutes={defaultMinutes}
+            onChange={loadAll}
+          />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <RoutinesCard routines={routines} stretches={stretches} onChange={loadAll} />
+        </div>
       </div>
 
       <div className="grid cols-2" style={{ marginTop: 14 }}>
+        <div style={{ minWidth: 0 }}>
+          <MetricsCard
+            metrics={metrics}
+            latestByMetric={latestByMetric}
+            lastAssessmentByMetric={lastAssessmentByMetric}
+            onChange={loadAll}
+          />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <SessionsTableCard sessions={sessions} routines={routines} onChange={loadAll} />
+        </div>
+      </div>
+
+      <div className="grid cols-2" style={{ marginTop: 14 }}>
+        <div style={{ minWidth: 0 }}>
         <ChartCard
           title="Metric trends"
           sub={`Assessments over the last ${TREND_DAYS} days · scored 1-10`}
@@ -189,7 +234,9 @@ export default function MobilityPage() {
             </div>
           )}
         </ChartCard>
+        </div>
 
+        <div style={{ minWidth: 0 }}>
         <ChartCard title={`Activity — last ${HISTORY_DAYS} days`} sub="Mobility minutes per day">
           {sessions.length === 0 ? (
             <p className="empty" style={{ padding: 0 }}>
@@ -205,15 +252,11 @@ export default function MobilityPage() {
             />
           )}
         </ChartCard>
-      </div>
-
-      <div className="grid cols-2" style={{ marginTop: 14 }}>
-        <RoutinesCard routines={routines} stretches={stretches} onChange={loadAll} />
-        <StretchBankCard stretches={stretches} onChange={loadAll} />
+        </div>
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <SessionsTableCard sessions={sessions} routines={routines} onChange={loadAll} />
+        <StretchBankCard stretches={stretches} onChange={loadAll} />
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -232,10 +275,15 @@ export default function MobilityPage() {
 // Log a session
 // ---------------------------------------------------------------------------
 
-function SessionLogCard(props: { routines: RoutineWithItems[]; onChange: () => void }) {
+function SessionLogCard(props: {
+  routines: RoutineWithItems[];
+  /** Last session's minutes (fallback 15) — pre-filled as a real value. */
+  defaultMinutes: number;
+  onChange: () => void;
+}) {
   const [kind, setKind] = useState<MobilityKind>("stretch");
   const [routineId, setRoutineId] = useState("");
-  const [duration, setDuration] = useState("");
+  const [duration, setDuration] = useState(() => String(props.defaultMinutes));
   const [feel, setFeel] = useState("");
   const [report, setReport] = useState("");
   const [notes, setNotes] = useState("");
@@ -268,7 +316,9 @@ function SessionLogCard(props: { routines: RoutineWithItems[]; onChange: () => v
         notes: notes.trim(),
       });
       setRoutineId("");
-      setDuration("");
+      // The session just logged is now the "last" one — keep its minutes as
+      // the pre-fill for the next quick log.
+      setDuration(String(minutes));
       setFeel("");
       setReport("");
       setNotes("");
@@ -315,7 +365,7 @@ function SessionLogCard(props: { routines: RoutineWithItems[]; onChange: () => v
             </select>
           </label>
         </div>
-        <div className="row wrap">
+        <div className="row wrap" style={{ alignItems: "flex-end" }}>
           <label className="field" style={{ width: 110 }}>
             Minutes
             <input
@@ -323,11 +373,22 @@ function SessionLogCard(props: { routines: RoutineWithItems[]; onChange: () => v
               type="number"
               min={1}
               max={600}
-              placeholder="15"
               value={duration}
               onChange={(e) => setDuration(e.target.value)}
             />
           </label>
+          <div className="row" style={{ gap: 6, paddingBottom: 4 }} aria-label="Quick minutes">
+            {[5, 10, 15].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`btn small${duration === String(n) ? " primary" : ""}`}
+                onClick={() => setDuration(String(n))}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
           <label className="field" style={{ flex: 1, minWidth: 130 }}>
             Feel (optional)
             <select className="input" value={feel} onChange={(e) => setFeel(e.target.value)}>
@@ -383,6 +444,9 @@ function MetricsCard(props: {
   const [name, setName] = useState("");
   const [direction, setDirection] = useState<MobilityMetric["direction"]>("higher_better");
   const [description, setDescription] = useState("");
+  // Deactivate/delete (and the inactive list) hide behind this toggle so the
+  // everyday rows stay just Rate + Undo.
+  const [manage, setManage] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -487,29 +551,33 @@ function MetricsCard(props: {
                       Undo
                     </button>
                   )}
-                  <button
-                    className="btn small"
-                    disabled={busy}
-                    title="Deactivated metrics keep their history and can be reactivated"
-                    onClick={() => run(() => mobilityApi.updateMetric(m.id, { active: 0 }))}
-                  >
-                    Deactivate
-                  </button>
-                  <button
-                    className="btn small danger"
-                    disabled={busy}
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          `Delete "${m.name}" and all its ratings? Deactivating keeps history.`,
-                        )
-                      ) {
-                        run(() => mobilityApi.deleteMetric(m.id));
-                      }
-                    }}
-                  >
-                    ×
-                  </button>
+                  {manage && (
+                    <>
+                      <button
+                        className="btn small"
+                        disabled={busy}
+                        title="Deactivated metrics keep their history and can be reactivated"
+                        onClick={() => run(() => mobilityApi.updateMetric(m.id, { active: 0 }))}
+                      >
+                        Deactivate
+                      </button>
+                      <button
+                        className="btn small danger"
+                        disabled={busy}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Delete "${m.name}" and all its ratings? Deactivating keeps history.`,
+                            )
+                          ) {
+                            run(() => mobilityApi.deleteMetric(m.id));
+                          }
+                        }}
+                      >
+                        ×
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -517,7 +585,7 @@ function MetricsCard(props: {
         </div>
       )}
 
-      {inactive.length > 0 && (
+      {manage && inactive.length > 0 && (
         <div className="stack" style={{ gap: 8, marginTop: 12 }}>
           <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 500 }}>Inactive</div>
           {inactive.map((m) => (
@@ -549,7 +617,19 @@ function MetricsCard(props: {
       )}
 
       <div className="stack" style={{ gap: 8, marginTop: 14 }}>
-        <div style={{ fontSize: 12, color: "var(--ink-2)", fontWeight: 500 }}>Add a metric</div>
+        <div className="row between">
+          <div style={{ fontSize: 12, color: "var(--ink-2)", fontWeight: 500 }}>Add a metric</div>
+          {props.metrics.length > 0 && (
+            <button
+              className="btn small"
+              aria-pressed={manage}
+              title="Show deactivate/delete controls (and inactive metrics)"
+              onClick={() => setManage((v) => !v)}
+            >
+              {manage ? "Done" : "Manage"}
+            </button>
+          )}
+        </div>
         <div className="row wrap">
           <input
             className="input"

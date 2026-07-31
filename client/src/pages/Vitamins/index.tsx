@@ -191,7 +191,7 @@ export default function VitaminsPage() {
             </button>
           </div>
         </div>
-        <div className="card-sub">
+        <div className="card-sub" style={{ marginTop: 4 }}>
           {checklistDay === "today"
             ? "Tap to mark taken — counts toward today's coverage."
             : `Marking yesterday (${new Date(`${yesterday}T12:00:00`).toLocaleDateString([], {

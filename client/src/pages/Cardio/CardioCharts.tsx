@@ -1,7 +1,67 @@
 import { useMemo } from "react";
 import type { CardioSession } from "@shared/types";
-import { ChartCard, HistoryBars, Legend, SERIES, TrendLine } from "../../viz/ChartKit";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { ChartCard, HistoryBars, Legend, SERIES } from "../../viz/ChartKit";
 import { miFromKm } from "../../units";
+
+// Match ChartKit's shared axis/tooltip styling so this chart reads like the
+// rest of the app (we can't use ChartKit's TrendLine here — it hard-wires
+// connectNulls, and this chart must BREAK the line on no-distance days).
+const axisTick = { fill: "var(--muted)", fontSize: 11 } as const;
+const tooltipStyle = {
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
+  borderRadius: 8,
+  fontSize: 12,
+  color: "var(--ink)",
+  boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+} as const;
+
+/**
+ * Distance line with real gaps: days whose sessions carried no distance
+ * (e.g. a HIIT day) are null, and connectNulls stays off so the line breaks
+ * instead of plunging to a fake 0 mi.
+ */
+function DistanceLine(props: { data: { date: string; mi: number | null }[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={160}>
+      <LineChart data={props.data} margin={{ top: 6, right: 8, bottom: 0, left: -14 }}>
+        <CartesianGrid stroke="var(--grid)" vertical={false} />
+        <XAxis
+          dataKey="date"
+          tick={axisTick}
+          tickLine={false}
+          axisLine={{ stroke: "var(--baseline)" }}
+          minTickGap={24}
+        />
+        <YAxis tick={axisTick} tickLine={false} axisLine={false} width={54} />
+        <Tooltip
+          contentStyle={tooltipStyle}
+          formatter={(value: unknown) =>
+            typeof value === "number" ? `${Math.round(value * 10) / 10} mi` : "no distance"
+          }
+        />
+        <Line
+          type="monotone"
+          dataKey="mi"
+          name="Distance"
+          stroke={SERIES[0]}
+          strokeWidth={2}
+          dot={props.data.length <= 31 ? { r: 2.5, strokeWidth: 0, fill: SERIES[0] } : false}
+          activeDot={{ r: 4 }}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
 
 /**
  * 30-day cardio history: distance line + stacked run/walk step bars.
@@ -35,8 +95,9 @@ export function CardioCharts(props: { cardio: CardioSession[] }) {
       .slice(-30)
       .map(([date, v]) => ({
         date: date.slice(5),
-        // Accumulated canonical km -> shown in miles.
-        mi: Math.round(miFromKm(v.km) * 100) / 100,
+        // Accumulated canonical km -> shown in miles. Days with no distance
+        // are null (a gap in the line), never a fake 0.
+        mi: v.km > 0 ? Math.round(miFromKm(v.km) * 100) / 100 : null,
         runSteps: v.runSteps,
         walkSteps: v.walkSteps,
       }));
@@ -48,13 +109,7 @@ export function CardioCharts(props: { cardio: CardioSession[] }) {
         <p className="empty">No cardio history yet — charts appear after your first logged session.</p>
       ) : (
         <>
-          <TrendLine
-            data={data}
-            x="date"
-            height={160}
-            unit="mi"
-            series={[{ key: "mi", name: "Distance", color: SERIES[0] }]}
-          />
+          <DistanceLine data={data} />
           <HistoryBars
             data={data}
             x="date"

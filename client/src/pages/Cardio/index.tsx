@@ -64,13 +64,20 @@ export default function CardioPage() {
         <StatTile
           label="Steps this week"
           value={weekStats.steps > 0 ? weekStats.steps.toLocaleString() : "—"}
-          delta="manual + estimated"
+          delta="entered + estimated"
         />
       </div>
 
+      {/* minWidth: 0 lets each card shrink below its content's min width on
+          phones (the nowrap history table otherwise forces the page past 390px
+          — the table scrolls inside its card instead). */}
       <div className="grid cols-2" style={{ marginTop: 14 }}>
-        <CardioCard cardio={cardio} onChange={reload} />
-        <CardioCharts cardio={cardio} />
+        <div style={{ minWidth: 0 }}>
+          <CardioCard cardio={cardio} onChange={reload} />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <CardioCharts cardio={cardio} />
+        </div>
       </div>
 
       <div style={{ marginTop: 14 }}>

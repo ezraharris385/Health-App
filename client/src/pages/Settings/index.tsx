@@ -247,16 +247,16 @@ export default function SettingsPage() {
     <div>
       <h1 className="page-title">Settings</h1>
       <p className="page-sub">
-        Your body profile and daily goals — the agents, scores, and calorie-balance estimate use
-        these. All units are imperial.
+        Your body profile and daily goals — your coaches, scores, and calorie balance use these.
+        All units are imperial.
       </p>
 
       <div className="grid cols-2">
         <div className="card">
           <h3>Body profile</h3>
           <p className="card-sub">
-            Age, height, sex, and activity power your calorie-baseline (TDEE) estimate on the
-            dashboard.
+            Age, height, sex, and activity power your estimated daily burn at rest + activity,
+            shown on the dashboard.
           </p>
           <div className="stack">
             <label className="field">
@@ -339,7 +339,7 @@ export default function SettingsPage() {
               </select>
             </label>
             <label className="field">
-              Notes for the agents (injuries, preferences, context)
+              Notes for your coaches (injuries, preferences, context)
               <textarea
                 className="input"
                 rows={3}
@@ -352,7 +352,7 @@ export default function SettingsPage() {
 
         <div className="card">
           <h3>Daily goals</h3>
-          <p className="card-sub">Targets the scores and agents track against each day.</p>
+          <p className="card-sub">Targets your scores and coaches track against each day.</p>
           <div className="stack">
             <div className="row">
               <label className="field" style={{ flex: 1 }}>
@@ -444,7 +444,7 @@ export default function SettingsPage() {
         <h3>Daily score weights</h3>
         <p className="card-sub">
           These decide how much each tab counts toward your daily score. Pick a goal preset
-          or set your own — the five weights always renormalize to 100%.
+          or set your own. Weights always add up to 100%.
         </p>
         <div className="stack">
           <label className="field">
@@ -524,8 +524,8 @@ export default function SettingsPage() {
           )}
         </div>
         <p className="card-sub">
-          Logs to today's weight history. Your latest weight drives BMR/TDEE and the calorie-balance
-          estimate.
+          Logs to today's weight history. Your latest weight drives your estimated daily burn at
+          rest + activity, and your calorie balance.
         </p>
         <div className="row wrap">
           <input

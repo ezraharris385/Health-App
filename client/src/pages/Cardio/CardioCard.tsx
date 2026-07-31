@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import type { CardioSession, CardioType } from "@shared/types";
 import { todayStr } from "../../api/http";
 import { cardioTotalSteps, workoutApi, type CardioInput } from "../../api/workout";
@@ -26,6 +26,20 @@ function num(v: string): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+/** "2026-07-30" -> "Wed, Jul 30" (for the editing chip). */
+function fmtDayDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** "2026-07-30" -> "Jul 30" (compact table date; full date in the tooltip). */
+function fmtShortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 /**
  * Cardio log: an activity-type picker (9 types + free-text label for "other"),
  * two entry modes — distance/duration (miles in, km on the wire) and steps-only
@@ -48,6 +62,10 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
   const [detailId, setDetailId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const formRef = useRef<HTMLDivElement | null>(null);
+
+  // Session being edited (for the "editing Wed, Jul 30 · Run" chip + row highlight).
+  const editingSession = editingId !== null ? cardio.find((c) => c.id === editingId) : undefined;
 
   function resetForm() {
     setEditingId(null);
@@ -86,6 +104,8 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
     setStepsRun(c.estimatedStepsRun ? String(c.estimatedStepsRun) : "");
     setStepsWalked(c.estimatedStepsWalked ? String(c.estimatedStepsWalked) : "");
     setReport(c.report);
+    // Bring the (pre-filled) form into view — on a phone it sits above the table.
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function save() {
@@ -120,7 +140,7 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
         const walked = num(stepsWalked);
         const total = num(stepsTotal);
         if ((run ?? 0) <= 0 && (walked ?? 0) <= 0 && (total ?? 0) <= 0) {
-          throw new Error("Enter steps while running, steps while walking, or a total.");
+          throw new Error("Enter your total steps (or a running/walking split).");
         }
         // Steps-only: no distance/duration. Explicit split + optional total.
         input = {
@@ -191,12 +211,15 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
   }
 
   return (
-    <div className="card">
+    <div className="card" ref={formRef}>
       <div className="row between">
         <h3>Cardio log</h3>
         {editingId !== null && (
           <span className="chip" style={{ color: "var(--status-warning)" }}>
-            editing #{editingId}
+            editing{" "}
+            {editingSession
+              ? `${fmtDayDate(editingSession.date)} · ${cardioActivityName(editingSession)}`
+              : "session"}
           </span>
         )}
       </div>
@@ -245,7 +268,12 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
             className={`btn small${mode === "steps" ? " primary" : ""}`}
             type="button"
             aria-pressed={mode === "steps"}
-            onClick={() => setMode("steps")}
+            onClick={() => {
+              setMode("steps");
+              // Steps-only logging is usually walking; nudge the untouched
+              // default (Run) to Walk. An explicit choice or an edit is kept.
+              if (editingId === null && type === "run") setType("walk");
+            }}
           >
             Steps only
           </button>
@@ -288,10 +316,10 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
             </label>
             <label
               className="field"
-              style={{ width: 120 }}
+              style={{ width: 150 }}
               title="Leave empty to auto-estimate from activity + distance"
             >
-              Steps (override)
+              Steps (optional — auto-estimated)
               <input
                 className="input"
                 type="number"
@@ -309,43 +337,13 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
           </div>
         ) : (
           <div className="stack" style={{ gap: 8 }}>
-            <p className="empty" style={{ margin: 0, textAlign: "left" }}>
-              Log steps with their source — no distance or duration needed.
-            </p>
             <div className="row wrap">
-              <label className="field" style={{ width: 120 }}>
-                Steps running
+              <label className="field" style={{ width: 140 }}>
+                Total steps
                 <input
                   className="input"
                   type="number"
                   min={0}
-                  placeholder="0"
-                  value={stepsRun}
-                  onChange={(e) => setStepsRun(e.target.value)}
-                />
-              </label>
-              <label className="field" style={{ width: 120 }}>
-                Steps walking
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  placeholder="0"
-                  value={stepsWalked}
-                  onChange={(e) => setStepsWalked(e.target.value)}
-                />
-              </label>
-              <label
-                className="field"
-                style={{ width: 120 }}
-                title="Optional single total — overrides the split above for the headline count"
-              >
-                Total (optional)
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  placeholder="auto"
                   value={stepsTotal}
                   onChange={(e) => setStepsTotal(e.target.value)}
                 />
@@ -361,6 +359,36 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
                   onChange={(e) => setIntensity(e.target.value)}
                 />
               </label>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>
+              Activity type only affects the distance estimate.
+            </div>
+            <div className="stack" style={{ gap: 4 }}>
+              <div style={{ fontSize: 12, color: "var(--ink-2)", fontWeight: 600 }}>
+                Split it (optional)
+              </div>
+              <div className="row wrap">
+                <label className="field" style={{ width: 120 }}>
+                  Running
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    value={stepsRun}
+                    onChange={(e) => setStepsRun(e.target.value)}
+                  />
+                </label>
+                <label className="field" style={{ width: 120 }}>
+                  Walking
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    value={stepsWalked}
+                    onChange={(e) => setStepsWalked(e.target.value)}
+                  />
+                </label>
+              </div>
             </div>
             {distanceHint && (
               <div className="chip" style={{ alignSelf: "flex-start" }}>
@@ -416,8 +444,14 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
               const steps = cardioTotalSteps(c);
               return (
                 <Fragment key={c.id}>
-                  <tr>
-                    <td>{c.date}</td>
+                  <tr
+                    style={
+                      editingId === c.id
+                        ? { background: "var(--accent-soft)" }
+                        : undefined
+                    }
+                  >
+                    <td title={c.date}>{fmtShortDate(c.date)}</td>
                     <td>
                       <button
                         className="btn small"

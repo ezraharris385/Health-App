@@ -80,7 +80,7 @@ const ICONS: Record<string, ReactNode> = {
 };
 
 const NAV = [
-  { to: "/dashboard", label: "Dashboard", color: "var(--series-1)", icon: "dashboard" },
+  { to: "/dashboard", label: "Home", color: "var(--series-1)", icon: "dashboard" },
   { to: "/workout", label: "Workout", color: "var(--series-6)", icon: "workout" },
   { to: "/cardio", label: "Cardio", color: "var(--series-4)", icon: "cardio" },
   { to: "/nutrition", label: "Nutrition", color: "var(--series-2)", icon: "nutrition" },
