@@ -84,8 +84,15 @@ export function PerformanceCard(props: {
         <>
           {latest && (
             <div className="row wrap" style={{ marginBottom: 8 }}>
-              <span className="chip">Last: {latest.bestSet}</span>
-              {latest.est1RM !== null && <span className="chip">est. 1RM {latest.est1RM}</span>}
+              <span className="chip">
+                Last:{" "}
+                {latest.bestWeight !== null
+                  ? `${latest.bestWeight} lb × ${latest.bestReps}`
+                  : latest.bestSet}
+              </span>
+              {latest.est1RM !== null && (
+                <span className="chip">Est. max single: {Math.round(latest.est1RM)} lb</span>
+              )}
               <span className="chip">{latest.sets} sets / {latest.volume.toLocaleString()} volume</span>
             </div>
           )}
@@ -101,7 +108,7 @@ export function PerformanceCard(props: {
             height={150}
             series={[
               { key: "best", name: "Best set weight (lb)", color: SERIES[1] },
-              { key: "est1RM", name: "Est. 1RM", color: SERIES[6] },
+              { key: "est1RM", name: "Estimated 1-rep max (lb)", color: SERIES[6] },
               ...(hasTimed ? [{ key: "hold", name: "Best hold (s)", color: SERIES[3] }] : []),
             ]}
           />
@@ -109,7 +116,7 @@ export function PerformanceCard(props: {
             items={[
               { name: "Volume (reps × weight)", color: SERIES[0] },
               { name: "Best set weight (lb)", color: SERIES[1] },
-              { name: "Est. 1RM (Epley)", color: SERIES[6] },
+              { name: "Estimated 1-rep max (lb)", color: SERIES[6] },
               ...(hasTimed ? [{ name: "Best hold (s)", color: SERIES[3] }] : []),
             ]}
           />

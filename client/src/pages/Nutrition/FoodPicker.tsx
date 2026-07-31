@@ -26,6 +26,19 @@ const EMPTY_FORM = {
 // so it isn't double counted by the vitamins coverage math.
 const MICRO_DEFS = NUTRIENTS.filter((n) => n.key !== "fiber_g");
 
+/** Sensible meal for the current wall-clock time: <11am breakfast, 11–4 lunch, 4–9pm dinner, else snack. */
+function defaultMealForNow(): MealType {
+  const h = new Date().getHours();
+  if (h < 11) return "breakfast";
+  if (h < 16) return "lunch";
+  if (h < 21) return "dinner";
+  return "snack";
+}
+
+// Last meal actually logged this session — wins over the time-of-day default
+// until the tab is reloaded (module-level on purpose; survives remounts).
+let sessionLastMeal: MealType | null = null;
+
 export function FoodPicker(props: {
   date: string;
   onLogged: () => void;
@@ -37,7 +50,7 @@ export function FoodPicker(props: {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | "">("");
   const [servings, setServings] = useState("1");
-  const [meal, setMeal] = useState<MealType>("snack");
+  const [meal, setMeal] = useState<MealType>(() => sessionLastMeal ?? defaultMealForNow());
   const [showCreate, setShowCreate] = useState(false);
   const [showMicros, setShowMicros] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -64,7 +77,21 @@ export function FoodPicker(props: {
     return list.slice(0, 100);
   }, [foods, query]);
 
-  const selected = filtered.find((f) => f.id === selectedId) ?? null;
+  // Resolve against the FULL library, not the filtered slice — editing the
+  // search text never silently clears a selection the user already made.
+  const selected = foods.find((f) => f.id === selectedId) ?? null;
+
+  // When the search narrows to exactly one food, that's the food — pick it.
+  useEffect(() => {
+    if (query.trim() !== "" && filtered.length === 1 && selectedId !== filtered[0].id) {
+      setSelectedId(filtered[0].id);
+    }
+  }, [query, filtered, selectedId]);
+
+  // Keep a still-selected food visible in the dropdown even when the current
+  // query filters it out.
+  const options =
+    selected && !filtered.some((f) => f.id === selected.id) ? [selected, ...filtered] : filtered;
 
   async function logSelected() {
     if (!selected) {
@@ -80,6 +107,7 @@ export function FoodPicker(props: {
     setError(null);
     try {
       await nutritionApi.logFood({ date: props.date, foodId: selected.id, servings: n, meal });
+      sessionLastMeal = meal; // remember last-used meal for the rest of the session
       setServings("1");
       props.onLogged();
     } catch (e) {
@@ -196,7 +224,7 @@ export function FoodPicker(props: {
             onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : "")}
           >
             <option value="">— pick a food —</option>
-            {filtered.map((f) => (
+            {options.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.name}
                 {f.brand ? ` (${f.brand})` : ""} · {Math.round(f.calories)} kcal

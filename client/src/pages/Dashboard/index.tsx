@@ -7,19 +7,6 @@ import { AgentChat } from "../../components/AgentChat";
 import { ChartCard, Meter, StatTile, TrendLine } from "../../viz/ChartKit";
 import { LB, fmtFloz, fmtMiles, flozFromMl } from "../../units";
 
-function scoreColor(score: number): string {
-  if (score >= 80) return "var(--status-good)";
-  if (score >= 60) return "var(--status-warning)";
-  if (score >= 40) return "var(--status-serious)";
-  return "var(--status-critical)";
-}
-
-/** Signed "+120 kcal" / "−420 kcal" for the caloric-balance net. */
-function fmtKcal(n: number): string {
-  const r = Math.round(n);
-  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)} kcal`;
-}
-
 const ACTIVITY_LABEL: Record<string, string> = {
   sedentary: "sedentary",
   light: "lightly active",
@@ -28,19 +15,49 @@ const ACTIVITY_LABEL: Record<string, string> = {
   very_active: "very active",
 };
 
-/**
- * Caloric net is coloured by deviation only: a deficit and a surplus share one
- * neutral brand accent (they read as "off maintenance"), never good-vs-bad —
- * whether a deficit is desirable depends on the user's cut/bulk goal. The same
- * mapping drives Nutrition/EnergyCard so both energy surfaces agree instead of
- * signalling the same day oppositely.
- */
-function energyStatusColor(status: EnergyBalance["status"]): string {
-  return status === "surplus" || status === "deficit" ? "var(--accent)" : "var(--ink-2)";
+/** date − 1 day for a YYYY-MM-DD string (local calendar). */
+function yesterdayStr(date: string): string {
+  const d = new Date(`${date}T12:00:00`);
+  d.setDate(d.getDate() - 1);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
 }
 
-function energyStatusWord(status: EnergyBalance["status"]): string {
-  return status === "surplus" ? "surplus" : status === "deficit" ? "deficit" : "maintaining";
+/**
+ * Compact score tile: label + number + one-line note. The day is still in
+ * progress, so the value renders in neutral ink/accent — never a red "failing
+ * grade" mid-day.
+ */
+function ScoreTile(props: {
+  label: string;
+  value: ReactNode;
+  note?: string;
+  valueColor?: string;
+  valueSize?: number;
+  noteWrap?: boolean;
+}) {
+  return (
+    <div className="card stat-tile">
+      <span className="label">{props.label}</span>
+      <span className="value" style={{ fontSize: props.valueSize ?? 24, color: props.valueColor }}>
+        {props.value}
+      </span>
+      {props.note && (
+        <span
+          className="delta"
+          title={props.note}
+          style={
+            props.noteWrap
+              ? undefined
+              : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }
+          }
+        >
+          {props.note}
+        </span>
+      )}
+    </div>
+  );
 }
 
 function SegmentCard(props: { title: string; to: string; color: string; children: ReactNode }) {
@@ -76,6 +93,7 @@ export default function DashboardPage() {
   const [history, setHistory] = useState<ScoreHistory | null>(null);
   const [energy, setEnergy] = useState<EnergyBalance | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showScoreHelp, setShowScoreHelp] = useState(false);
 
   const reload = useCallback(() => {
     Promise.all([dashboardApi.overview(), dashboardApi.history(30), dashboardApi.energy()])
@@ -112,11 +130,20 @@ export default function DashboardPage() {
 
   const { score } = overview;
   const daily = history.daily;
-  const yesterday = daily.length >= 2 ? daily[daily.length - 2] : undefined;
-  const delta = yesterday ? score.total - yesterday.total : null;
-  const deltaDir = delta == null || delta === 0 ? "flat" : delta > 0 ? "up" : "down";
-  const deltaText =
-    delta == null ? "no history yet" : `${delta > 0 ? "+" : ""}${delta} vs yesterday`;
+
+  // The dashboard always shows TODAY — an unfinished day. The hero stays
+  // neutral ("so far today") and compares against yesterday's *final* score
+  // as plain information, not a win/loss delta.
+  const yesterday = daily.find((d) => d.date === yesterdayStr(overview.date));
+  const heroNote = yesterday
+    ? `So far today · yesterday finished at ${yesterday.total}`
+    : "So far today";
+
+  // Honest average labels: the engine averages only finished days from the
+  // first day with any log; mirror that count here.
+  const finishedDays = daily.filter((d) => d.date !== overview.date).length;
+  const n7 = Math.min(7, finishedDays);
+  const n30 = Math.min(30, finishedDays);
 
   const trendData = daily.map((d) => ({ date: d.date.slice(5), score: d.total }));
 
@@ -135,162 +162,74 @@ export default function DashboardPage() {
         ? "Scheduled — not logged yet"
         : "Rest day";
 
+  // Mid-day energy framing: food so far vs the full-day burn estimate.
+  const roomLeft = Math.round(energy.totalBurn - energy.intakeCalories);
+
   return (
     <div>
       <h1 className="page-title">Dashboard</h1>
       <p className="page-sub">
-        {overview.date} — your day across all five segments.
+        {overview.date} — your day across all six areas.
         {overview.goalStatement ? ` Goal: ${overview.goalStatement}` : ""}
       </p>
 
-      {/* Hero: today's score + component tiles */}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-        <div className="card stat-tile">
-          <span className="label">Today's health score</span>
-          <span className="value" style={{ fontSize: 46, color: scoreColor(score.total) }}>
-            {score.total}
-          </span>
-          <span className={`delta ${deltaDir}`}>{deltaText}</span>
-        </div>
-        <StatTile
+      {/* Today's score: hero + five segment tiles, compact 2-per-row */}
+      <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+        <ScoreTile
+          label="Health score"
+          value={score.total}
+          valueColor="var(--accent)"
+          valueSize={30}
+          note={heroNote}
+          noteWrap
+        />
+        <ScoreTile
           label={`Workout · ${score.weights.workout}%`}
           value={score.workout}
-          delta={score.breakdown.workout}
+          note={score.breakdown.workout}
         />
-        <StatTile
+        <ScoreTile
           label={`Nutrition · ${score.weights.nutrition}%`}
           value={score.nutrition}
-          delta={[score.breakdown.nutrition, score.breakdown.water].filter(Boolean).join(" ")}
+          note={[score.breakdown.nutrition, score.breakdown.water].filter(Boolean).join(" ")}
         />
-        <StatTile
+        <ScoreTile
           label={`Sleep · ${score.weights.sleep}%`}
           value={score.sleep}
-          delta={score.breakdown.sleep}
+          note={score.breakdown.sleep}
         />
-        <StatTile
+        <ScoreTile
           label={`Vitamins · ${score.weights.vitamins}%`}
           value={score.vitamins}
-          delta={score.breakdown.vitamins}
+          note={score.breakdown.vitamins}
         />
-        <StatTile
+        <ScoreTile
           label={`Mobility · ${score.weights.mobility}%`}
           value={score.mobility}
-          delta={score.breakdown.mobility}
+          note={score.breakdown.mobility}
         />
       </div>
-      <p className="page-sub" style={{ marginTop: 8 }}>
-        Each segment starts at 0 each day and climbs as you log. The % on each tile is that
-        segment's weight in your total — weighted by your goal (edit in{" "}
-        <Link to="/settings" style={{ color: "var(--series-1)" }}>
-          Settings
-        </Link>
-        ).
-      </p>
-
-      {/* Energy balance: intake vs baseline (TDEE) + exercise burn */}
-      <h2 className="section-title">Energy balance</h2>
-      {energy.hasProfile ? (
-        <>
-          <div
-            className="grid"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
-          >
-            <div className="card stat-tile">
-              <span className="label">Net today</span>
-              <span
-                className="value"
-                style={{ fontSize: 38, color: energyStatusColor(energy.status) }}
-              >
-                {fmtKcal(energy.net ?? 0)}
-              </span>
-              <span className="delta" style={{ color: energyStatusColor(energy.status) }}>
-                {energyStatusWord(energy.status)}
-              </span>
-            </div>
-            <StatTile label="Intake" value={`${Math.round(energy.intakeCalories)} kcal`} delta="eaten" />
-            <StatTile
-              label={`Baseline · ${
-                energy.activityLevel ? ACTIVITY_LABEL[energy.activityLevel] ?? energy.activityLevel : "TDEE"
-              }`}
-              value={`${Math.round(energy.baselineBurn ?? 0)} kcal`}
-              delta={energy.bmr != null ? `BMR ${Math.round(energy.bmr)}` : undefined}
-            />
-            <StatTile
-              label="Exercise burn"
-              value={`${Math.round(energy.exerciseBurn)} kcal`}
-              delta="logged workouts"
-            />
-            <StatTile
-              label="Total out"
-              value={`${Math.round(energy.totalBurn)} kcal`}
-              delta="baseline + exercise"
-            />
-          </div>
-          <p className="page-sub" style={{ marginTop: 8 }}>
-            Net = intake − (baseline TDEE + exercise). Negative is a deficit. Exercise and strength
-            burn are estimates.
-          </p>
-        </>
-      ) : (
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
-          <div className="card" style={{ gridColumn: "1 / -1" }}>
-            <p style={{ margin: 0, color: "var(--ink-2)", fontSize: 14 }}>
-              Add your age, height, weight &amp; activity in{" "}
-              <Link to="/settings" style={{ color: "var(--series-1)" }}>
-                Settings
-              </Link>{" "}
-              to see your baseline burn (TDEE) and caloric net. Intake and exercise burn are shown
-              below in the meantime.
-            </p>
-          </div>
-          <StatTile label="Intake" value={`${Math.round(energy.intakeCalories)} kcal`} delta="eaten today" />
-          <StatTile
-            label="Exercise burn"
-            value={`${Math.round(energy.exerciseBurn)} kcal`}
-            delta="logged workouts"
-          />
-        </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <button
+          type="button"
+          className="chip"
+          onClick={() => setShowScoreHelp((v) => !v)}
+          aria-expanded={showScoreHelp}
+          style={{ cursor: "pointer" }}
+        >
+          (?) {showScoreHelp ? "Hide" : "How scores work"}
+        </button>
+      </div>
+      {showScoreHelp && (
+        <p className="page-sub" style={{ marginTop: 8 }}>
+          Each segment starts at 0 each day and climbs as you log. The % on each tile is that
+          segment's weight in your total — weighted by your goal (edit in{" "}
+          <Link to="/settings" style={{ color: "var(--series-1)" }}>
+            Settings
+          </Link>
+          ).
+        </p>
       )}
-
-      {/* Coordinator chat + score trend */}
-      <div className="grid cols-2" style={{ marginTop: 14 }}>
-        <AgentChat
-          agent="master"
-          title="Health Coordinator"
-          placeholder={
-            'Your master coach — it sees every segment and can task the specialist agents. Try "How am I doing today?" or "Plan a dinner that fits my remaining calories and fills my vitamin gaps."'
-          }
-          onReply={reload}
-        />
-        <div className="stack">
-          <ChartCard title="Health score — last 30 days" sub="Daily total (0-100)">
-            <TrendLine
-              data={trendData}
-              x="date"
-              series={[{ key: "score", name: "Health score" }]}
-              yDomain={[0, 100]}
-              referenceY={{ value: history.monthlyAverage, label: "30-day avg" }}
-            />
-          </ChartCard>
-          <div className="grid cols-2">
-            <StatTile
-              label="7-day average"
-              value={history.weeklyAverage}
-              delta={`${history.weeklyAverage >= history.monthlyAverage ? "+" : ""}${
-                history.weeklyAverage - history.monthlyAverage
-              } vs 30-day`}
-              deltaDirection={
-                history.weeklyAverage > history.monthlyAverage
-                  ? "up"
-                  : history.weeklyAverage < history.monthlyAverage
-                    ? "down"
-                    : "flat"
-              }
-            />
-            <StatTile label="30-day average" value={history.monthlyAverage} />
-          </div>
-        </div>
-      </div>
 
       {/* Per-segment summaries */}
       <h2 className="section-title">Segments</h2>
@@ -408,6 +347,126 @@ export default function DashboardPage() {
           </span>
         </SegmentCard>
       </div>
+
+      {/* Score trend + honest averages */}
+      <h2 className="section-title">Trend</h2>
+      <div className="stack">
+        <ChartCard
+          title="Health score"
+          sub={`Daily total (0-100) · ${daily.length} day${daily.length === 1 ? "" : "s"} since your first log`}
+        >
+          <TrendLine
+            data={trendData}
+            x="date"
+            series={[{ key: "score", name: "Health score" }]}
+            yDomain={[0, 100]}
+            referenceY={{ value: history.monthlyAverage, label: "30-day avg" }}
+          />
+        </ChartCard>
+        <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+          <StatTile
+            label={`7-day average (${n7} logged day${n7 === 1 ? "" : "s"})`}
+            value={history.weeklyAverage}
+            delta={`${history.weeklyAverage >= history.monthlyAverage ? "+" : ""}${
+              history.weeklyAverage - history.monthlyAverage
+            } vs 30-day`}
+            deltaDirection={
+              history.weeklyAverage > history.monthlyAverage
+                ? "up"
+                : history.weeklyAverage < history.monthlyAverage
+                  ? "down"
+                  : "flat"
+            }
+          />
+          <StatTile
+            label={`30-day average (${n30} logged day${n30 === 1 ? "" : "s"})`}
+            value={history.monthlyAverage}
+          />
+        </div>
+      </div>
+
+      {/* Energy: food so far vs full-day burn (the day isn't over yet) */}
+      <h2 className="section-title">Energy balance</h2>
+      {energy.hasProfile ? (
+        <>
+          <div
+            className="grid"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
+          >
+            <div className="card stat-tile">
+              <span className="label">
+                {roomLeft >= 0 ? "Room left today" : "Over your full-day burn"}
+              </span>
+              <span className="value" style={{ fontSize: 34, color: "var(--accent)" }}>
+                {Math.abs(roomLeft)} kcal
+              </span>
+              <span className="delta">food so far vs full-day burn (est.)</span>
+            </div>
+            <StatTile
+              label="Intake"
+              value={`${Math.round(energy.intakeCalories)} kcal`}
+              delta="food so far"
+            />
+            <StatTile
+              label="At rest + daily activity"
+              value={`${Math.round(energy.baselineBurn ?? 0)} kcal`}
+              delta={`est.${energy.bmr != null ? ` — resting ${Math.round(energy.bmr)} kcal` : ""}${
+                energy.activityLevel
+                  ? `, ${ACTIVITY_LABEL[energy.activityLevel] ?? energy.activityLevel}`
+                  : ""
+              }`}
+            />
+            <StatTile
+              label="Exercise burn"
+              value={`${Math.round(energy.exerciseBurn)} kcal`}
+              delta="logged workouts"
+            />
+            <StatTile
+              label="Full-day burn"
+              value={`${Math.round(energy.totalBurn)} kcal`}
+              delta="at rest + activity + exercise (est.)"
+            />
+          </div>
+          <p className="page-sub" style={{ marginTop: 8 }}>
+            Room left = your full-day burn (at rest + daily activity + exercise) minus food logged
+            so far. Burn numbers are estimates.
+          </p>
+        </>
+      ) : (
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+          <div className="card" style={{ gridColumn: "1 / -1" }}>
+            <p style={{ margin: 0, color: "var(--ink-2)", fontSize: 14 }}>
+              Add your age, height, weight &amp; activity in{" "}
+              <Link to="/settings" style={{ color: "var(--series-1)" }}>
+                Settings
+              </Link>{" "}
+              to see your full-day burn and how much room you have left today. Intake and exercise
+              burn are shown below in the meantime.
+            </p>
+          </div>
+          <StatTile
+            label="Intake"
+            value={`${Math.round(energy.intakeCalories)} kcal`}
+            delta="food so far"
+          />
+          <StatTile
+            label="Exercise burn"
+            value={`${Math.round(energy.exerciseBurn)} kcal`}
+            delta="logged workouts"
+          />
+        </div>
+      )}
+
+      {/* Coordinator chat — after the numbers, so the day's context comes first */}
+      <h2 className="section-title">Ask your coach</h2>
+      <AgentChat
+        agent="master"
+        title="Health Coordinator"
+        placeholder={
+          'Your master coach — it sees every segment and can task the specialist agents. Try "How am I doing today?" or "Plan a dinner that fits my remaining calories and fills my vitamin gaps."'
+        }
+        onReply={reload}
+      />
     </div>
   );
 }

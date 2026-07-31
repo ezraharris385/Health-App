@@ -47,14 +47,14 @@ export function PlansCard(props: {
         <input
           className="input"
           style={{ flex: 2, minWidth: 140 }}
-          placeholder="New plan name (e.g. Push Pull Legs)"
+          placeholder="Plan name"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
         />
         <input
           className="input"
           style={{ flex: 1, minWidth: 100 }}
-          placeholder="Goal (e.g. strength)"
+          placeholder="Goal"
           value={newGoal}
           onChange={(e) => setNewGoal(e.target.value)}
         />

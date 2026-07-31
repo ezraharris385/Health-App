@@ -8,6 +8,14 @@ export function fmtDay(date: string): string {
   return `${Number(parts[1])}/${Number(parts[2])}`;
 }
 
+/** "2026-07-29" -> "Wed, Jul 29" for card headers and tables */
+export function fmtDateShort(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+  if (Number.isNaN(dt.getTime())) return date;
+  return dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
 export function r1(n: number): number {
   return Math.round(n * 10) / 10;
 }

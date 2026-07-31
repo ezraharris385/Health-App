@@ -7,7 +7,7 @@
  * nutrition 28 (incl. water), sleep 22, vitamins 15, mobility 13 — but never
  * assume them; DailyScore.weights carries the normalized percents actually used.
  */
-import { daysAgoStr, dateRange, todayStr } from "./db";
+import { daysAgoStr, dateRange, db, todayStr } from "./db";
 import { getSettings } from "./settingsStore";
 import { effectiveWeights } from "./scoreWeights";
 import {
@@ -47,15 +47,23 @@ export function computeDailyScore(date: string): DailyScore {
   if (n.logs.length === 0) {
     breakdown.nutrition = "No food logged.";
   } else {
-    // Calories: 100 within ±10% of goal, sliding to 0 at ±50%.
-    const calRatio = Math.abs(n.totals.calories - goals.calorieGoal) / goals.calorieGoal;
-    const calScore = calRatio <= 0.1 ? 100 : Math.max(0, 100 - (calRatio - 0.1) * 250);
+    // Calories: an unfinished day is never punished for being under goal —
+    // while intake is at or below 110% of goal, score is simply progress toward
+    // the goal (100 once within ~90% of it). Above 110% the original over-goal
+    // slide applies (100 at 110%, reaching 0 at 150% of goal).
+    let calScore: number;
+    if (n.totals.calories <= goals.calorieGoal * 1.1) {
+      calScore = Math.min(100, (n.totals.calories / (0.9 * goals.calorieGoal)) * 100);
+    } else {
+      const overRatio = (n.totals.calories - goals.calorieGoal) / goals.calorieGoal;
+      calScore = Math.max(0, 100 - (overRatio - 0.1) * 250);
+    }
     // Protein: ratio to goal, capped at 100.
     const proteinScore = Math.min(100, (n.totals.proteinG / goals.proteinGoalG) * 100);
     food = 0.6 * calScore + 0.4 * proteinScore;
-    breakdown.nutrition = `Calories ${Math.round(n.totals.calories)}/${goals.calorieGoal} (score ${Math.round(
-      calScore,
-    )}), protein ${Math.round(n.totals.proteinG)}g/${goals.proteinGoalG}g (score ${Math.round(proteinScore)}).`;
+    breakdown.nutrition = `Calories ${Math.round(n.totals.calories)}/${goals.calorieGoal} kcal, protein ${Math.round(
+      n.totals.proteinG,
+    )}/${goals.proteinGoalG} g.`;
   }
   const waterScore = Math.min(100, (n.waterMl / goals.waterGoalMl) * 100);
   // Imperial display: convert stored ml → fl oz (1 fl oz = 29.5735 ml).
@@ -124,13 +132,49 @@ export function computeDailyScore(date: string): DailyScore {
   };
 }
 
+/**
+ * Earliest date with any logged data across every log-bearing table, or null
+ * when the database has no logs at all. MIN() ignores empty tables (NULL).
+ */
+function firstLoggedDate(): string | null {
+  const row = db
+    .prepare(
+      `SELECT MIN(d) AS d FROM (
+         SELECT MIN(date) AS d FROM food_logs
+         UNION ALL SELECT MIN(date) FROM water_logs
+         UNION ALL SELECT MIN(date) FROM workout_sessions
+         UNION ALL SELECT MIN(date) FROM cardio_sessions
+         UNION ALL SELECT MIN(date) FROM sleep_logs
+         UNION ALL SELECT MIN(date) FROM mobility_sessions
+         UNION ALL SELECT MIN(date) FROM supplement_logs
+       )`,
+    )
+    .get() as { d: string | null } | undefined;
+  return row?.d ?? null;
+}
+
 export function getScoreHistory(days: number): ScoreHistory {
   const end = todayStr();
   const start = daysAgoStr(days - 1);
-  const daily = dateRange(start, end).map(computeDailyScore);
   const avg = (list: DailyScore[]) =>
     list.length === 0 ? 0 : Math.round(list.reduce((a, d) => a + d.total, 0) / list.length);
-  const last7 = daily.slice(-7);
-  const last30 = daily.slice(-30);
-  return { daily, weeklyAverage: avg(last7), monthlyAverage: avg(last30) };
+
+  const firstLogged = firstLoggedDate();
+  if (firstLogged == null) {
+    // No data anywhere: keep the original full-window behavior.
+    const daily = dateRange(start, end).map(computeDailyScore);
+    return { daily, weeklyAverage: avg(daily.slice(-7)), monthlyAverage: avg(daily.slice(-30)) };
+  }
+
+  // Trim the series so it never starts before the first day with any log (but
+  // never widen past the requested window), and average only FINISHED days —
+  // today is still in progress and pre-app days would drag averages to zero.
+  const from = firstLogged > end ? end : firstLogged > start ? firstLogged : start;
+  const daily = dateRange(from, end).map(computeDailyScore);
+  const finished = daily.filter((d) => d.date !== end);
+  return {
+    daily,
+    weeklyAverage: avg(finished.slice(-7)),
+    monthlyAverage: avg(finished.slice(-30)),
+  };
 }

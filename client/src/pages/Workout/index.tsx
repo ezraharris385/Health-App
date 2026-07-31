@@ -11,7 +11,7 @@ import {
 } from "../../api/workout";
 import { WeekScheduleCard } from "./WeekScheduleCard";
 import { GuidedEntryCard } from "./GuidedEntryCard";
-import { SessionLogger } from "./SessionLogger";
+import { RecentSessionsCard, SessionLogger } from "./SessionLogger";
 import { PerformanceCard } from "./PerformanceCard";
 import { PlansCard } from "./PlansCard";
 import { ExerciseLibrary } from "./ExerciseLibrary";
@@ -91,7 +91,7 @@ export default function WorkoutPage() {
         <StatTile
           label="Volume this week"
           value={Math.round(weekStats.volume).toLocaleString()}
-          delta="Σ reps × weight"
+          delta="lb lifted (reps × weight)"
         />
         <StatTile label="Today" value={todayTile.value} delta={todayTile.delta} />
       </div>
@@ -100,13 +100,7 @@ export default function WorkoutPage() {
         <WeekScheduleCard week={week} />
       </div>
 
-      <div className="grid cols-2" style={{ marginTop: 14 }}>
-        <GuidedEntryCard
-          scheduled={todaySchedule?.scheduled ?? []}
-          plans={plans}
-          exercises={exercises}
-          onChange={reload}
-        />
+      <div style={{ marginTop: 14 }}>
         <SessionLogger
           today={today}
           scheduled={todaySchedule?.scheduled ?? []}
@@ -115,6 +109,19 @@ export default function WorkoutPage() {
           plans={plans}
           onChange={reload}
         />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <GuidedEntryCard
+          scheduled={todaySchedule?.scheduled ?? []}
+          plans={plans}
+          exercises={exercises}
+          onChange={reload}
+        />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <RecentSessionsCard sessions={sessions} onChange={reload} />
       </div>
 
       <div style={{ marginTop: 14 }}>

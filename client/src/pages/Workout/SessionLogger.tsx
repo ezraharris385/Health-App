@@ -1,17 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Exercise, ExerciseTrackingType } from "@shared/types";
-import { workoutApi, type PlanFull, type SessionFull, type WeekDaySchedule } from "../../api/workout";
+import type { Exercise, ExerciseTrackingType, SessionSet } from "@shared/types";
+import { workoutApi, type PlanFull, type PlanDayFull, type SessionFull, type WeekDaySchedule } from "../../api/workout";
 import {
   buildMeasure,
   describeSetAuto,
   describeTarget,
   emptyDraft,
+  milesFromMeters,
   TrackingInputs,
   type TrackDraft,
 } from "./tracking";
+import { FollowPlayer } from "./FollowPlayer";
 
 function volumeOf(s: SessionFull): number {
   return s.sets.reduce((a, st) => a + st.reps * (st.weight ?? 0), 0);
+}
+
+/** First number of a rep-range prescription, e.g. "8-12" → "8"; "" for AMRAP etc. */
+function firstRepOf(range: string | undefined | null): string {
+  const m = (range ?? "").match(/\d+/);
+  return m ? m[0] : "";
 }
 
 /** Today's workout: start a session (from a scheduled plan day or blank) and log
@@ -27,6 +35,8 @@ export function SessionLogger(props: {
   const { today, scheduled, sessions, exercises, plans, onChange } = props;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Plan day currently open in the guided Follow player.
+  const [following, setFollowing] = useState<{ day: PlanDayFull; planName: string } | null>(null);
 
   const exById = useMemo(() => {
     const m = new Map<number, Exercise>();
@@ -59,6 +69,50 @@ export function SessionLogger(props: {
     return null;
   }, [openSession, plans]);
 
+  /** Most recent logged set for an exercise (sessions arrive newest-first). */
+  function lastSetFor(exId: number): SessionSet | null {
+    for (const s of sessions) {
+      for (let i = s.sets.length - 1; i >= 0; i--) {
+        if (s.sets[i].exerciseId === exId) return s.sets[i];
+      }
+    }
+    return null;
+  }
+
+  /** Pre-fill the set inputs from the most recent logged set for the exercise,
+   *  falling back to the followed plan day's target. Effort (RPE) stays empty. */
+  function prefillFor(exId: number): TrackDraft {
+    const d = emptyDraft();
+    const type = exById.get(exId)?.trackingType ?? "weight_reps";
+    const last = lastSetFor(exId);
+    const target = planDay?.exercises.find((pe) => pe.exerciseId === exId) ?? null;
+    switch (type) {
+      case "weight_reps":
+      case "reps":
+        if (last && last.reps > 0) d.reps = String(last.reps);
+        else d.reps = firstRepOf(target?.reps);
+        if (type === "weight_reps") {
+          if (last) d.weight = last.weight != null ? String(last.weight) : "";
+          else if (target?.targetWeight != null) d.weight = String(target.targetWeight);
+        }
+        break;
+      case "time":
+        if (last?.durationSeconds != null) d.timeMin = String(+(last.durationSeconds / 60).toFixed(2));
+        else if (target?.targetSeconds != null) d.timeMin = String(+(target.targetSeconds / 60).toFixed(2));
+        break;
+      case "distance":
+        if (last?.distanceM != null) d.distanceMi = milesFromMeters(last.distanceM).toFixed(2);
+        else if (target?.targetDistanceM != null)
+          d.distanceMi = milesFromMeters(target.targetDistanceM).toFixed(2);
+        break;
+      case "count":
+        if (last?.count != null) d.count = String(last.count);
+        else if (target?.targetCount != null) d.count = String(target.targetCount);
+        break;
+    }
+    return d;
+  }
+
   // Preselect the first exercise of the followed plan day (or first library exercise).
   // Re-run once per newly started session (keyed on session id) so a plan day's
   // first exercise wins over the mount-time library default, without stomping
@@ -71,13 +125,18 @@ export function SessionLogger(props: {
       const first = planDay?.exercises[0]?.exerciseId ?? exercises[0]?.id;
       if (first) {
         setExerciseId(String(first));
+        setDraft(prefillFor(first));
         return;
       }
     }
     if (!exerciseId) {
       const first = planDay?.exercises[0]?.exerciseId ?? exercises[0]?.id;
-      if (first) setExerciseId(String(first));
+      if (first) {
+        setExerciseId(String(first));
+        setDraft(prefillFor(first));
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openSession, planDay, exercises, exerciseId, preselectedSessionId]);
 
   async function act(fn: () => Promise<unknown>) {
@@ -96,9 +155,20 @@ export function SessionLogger(props: {
   const start = (planDayId?: number, name?: string) =>
     act(() => workoutApi.createSession({ planDayId, name }));
 
+  function followDay(planDayId: number) {
+    for (const p of plans) {
+      const d = p.days.find((dd) => dd.id === planDayId);
+      if (d) {
+        setFollowing({ day: d, planName: p.name });
+        return;
+      }
+    }
+  }
+
   function changeExercise(id: string) {
     setExerciseId(id);
-    setDraft(emptyDraft()); // tracking type may differ — start clean
+    // tracking type may differ — start from that exercise's last set / target
+    setDraft(id ? prefillFor(Number(id)) : emptyDraft());
   }
 
   const addSet = () =>
@@ -110,32 +180,40 @@ export function SessionLogger(props: {
       const res = buildMeasure(ex?.trackingType ?? "weight_reps", draft, ex?.name ?? "Exercise");
       if (!res.ok) throw new Error(res.error);
       await workoutApi.addSet(openSession.id, { exerciseId: exId, ...res.measure });
-      setDraft(emptyDraft());
+      // keep the just-logged values as the pre-fill for the next set; effort resets
+      setDraft({ ...draft, rpe: "" });
     });
-
-  const recent = sessions.slice(0, 8);
 
   return (
     <div className="card">
       <h3>Today&apos;s workout</h3>
+      <div className="card-sub">At the gym now? Start here.</div>
 
       {!openSession ? (
         <div className="stack">
           {scheduled.length > 0 ? (
             <>
               <span style={{ fontSize: 12, color: "var(--ink-2)" }}>Scheduled today:</span>
-              <div className="row wrap">
-                {scheduled.map((s) => (
+              {scheduled.map((s) => (
+                <div key={s.planDayId} className="row wrap">
                   <button
-                    key={s.planDayId}
                     className="btn primary"
+                    style={{ flex: "1 1 0", minWidth: 0 }}
                     disabled={busy}
                     onClick={() => start(s.planDayId)}
                   >
                     Start {s.planName} — {s.dayName}
                   </button>
-                ))}
-              </div>
+                  <button
+                    className="btn"
+                    disabled={busy}
+                    title="Step through this day one exercise at a time"
+                    onClick={() => followDay(s.planDayId)}
+                  >
+                    Follow
+                  </button>
+                </div>
+              ))}
             </>
           ) : (
             <p className="empty" style={{ padding: 0 }}>
@@ -145,7 +223,7 @@ export function SessionLogger(props: {
           <div className="row wrap">
             <select
               className="input"
-              style={{ flex: 2, minWidth: 160 }}
+              style={{ flex: 2, minWidth: 160, maxWidth: "100%" }}
               value={startPlanDayId}
               onChange={(e) => setStartPlanDayId(e.target.value)}
             >
@@ -169,8 +247,8 @@ export function SessionLogger(props: {
           <div className="row wrap">
             <input
               className="input"
-              style={{ flex: 2, minWidth: 160 }}
-              placeholder="Blank session name (e.g. Arms)"
+              style={{ flex: 2, minWidth: 120 }}
+              placeholder="e.g. Arms"
               value={blankName}
               onChange={(e) => setBlankName(e.target.value)}
             />
@@ -232,7 +310,7 @@ export function SessionLogger(props: {
                     <th>Exercise</th>
                     <th>Set</th>
                     <th>Result</th>
-                    <th>RPE</th>
+                    <th>Effort</th>
                     <th />
                   </tr>
                 </thead>
@@ -262,7 +340,7 @@ export function SessionLogger(props: {
           <div className="row wrap" style={{ alignItems: "flex-end" }}>
             <select
               className="input"
-              style={{ flex: 2, minWidth: 140 }}
+              style={{ flex: 2, minWidth: 140, maxWidth: "100%" }}
               value={exerciseId}
               onChange={(e) => changeExercise(e.target.value)}
             >
@@ -289,9 +367,43 @@ export function SessionLogger(props: {
 
       {error && <p className="error-text">{error}</p>}
 
-      <div className="section-title" style={{ marginTop: 18 }}>
-        Recent sessions
-      </div>
+      {following && (
+        <FollowPlayer
+          planName={following.planName}
+          day={following.day}
+          exercises={exercises}
+          onClose={() => setFollowing(null)}
+          onSaved={onChange}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Sessions from the last 30 days, with per-session delete. */
+export function RecentSessionsCard(props: { sessions: SessionFull[]; onChange: () => void }) {
+  const { sessions, onChange } = props;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const recent = sessions.slice(0, 8);
+
+  async function remove(s: SessionFull) {
+    if (!window.confirm(`Delete session "${s.name}" (${s.date})?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await workoutApi.deleteSession(s.id);
+      onChange();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>Recent sessions</h3>
       {recent.length === 0 ? (
         <p className="empty">No sessions in the last 30 days.</p>
       ) : (
@@ -325,15 +437,7 @@ export function SessionLogger(props: {
                     </span>
                   </td>
                   <td>
-                    <button
-                      className="btn small danger"
-                      disabled={busy}
-                      onClick={() => {
-                        if (window.confirm(`Delete session "${s.name}" (${s.date})?`)) {
-                          act(() => workoutApi.deleteSession(s.id));
-                        }
-                      }}
-                    >
+                    <button className="btn small danger" disabled={busy} onClick={() => remove(s)}>
                       ×
                     </button>
                   </td>
@@ -343,6 +447,7 @@ export function SessionLogger(props: {
           </table>
         </div>
       )}
+      {error && <p className="error-text">{error}</p>}
     </div>
   );
 }

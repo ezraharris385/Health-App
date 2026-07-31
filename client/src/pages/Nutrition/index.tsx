@@ -1,7 +1,7 @@
 /**
- * Nutrition page: daily summary vs goals (StatTiles + macro meters), per-meal
- * food log with picker/creator, in-depth water tracking, weight trend, 30-day
- * calorie/macro/water history charts, and the nutrition agent chat.
+ * Nutrition page, ordered by what a mid-day user does most: goal tiles (with
+ * built-in progress bars) → meal log → water → weight quick-entry → compact
+ * energy strip → 30-day history charts → the nutrition agent chat.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DailyNutritionSummary, EnergyBalance } from "@shared/types";
@@ -17,7 +17,7 @@ import {
   type WeightHistoryResponse,
 } from "../../api/nutrition";
 import { FLOZ, flozFromMl } from "../../units";
-import { ChartCard, HistoryBars, Legend, Meter, SERIES, StatTile } from "../../viz/ChartKit";
+import { ChartCard, HistoryBars, Legend, SERIES } from "../../viz/ChartKit";
 import { CoachDraftCard } from "./CoachDraftCard";
 import { EnergyCard } from "./EnergyCard";
 import { MealLogCard } from "./MealLogCard";
@@ -116,20 +116,6 @@ export default function NutritionPage() {
     totalFloz: r1(flozFromMl(d.totalMl)),
   }));
 
-  // Every nonzero macro a taken supplement adds to today's totals — disclosed so
-  // the day-vs-goals numbers reconcile against the food-only meal log (a 0-kcal
-  // electrolyte tablet still moves Sodium, which must be attributable).
-  const suppParts = suppMacros
-    ? [
-        suppMacros.calories > 0 ? `${Math.round(suppMacros.calories)} kcal` : null,
-        suppMacros.proteinG > 0 ? `+${r1(suppMacros.proteinG)}g protein` : null,
-        suppMacros.carbsG > 0 ? `+${r1(suppMacros.carbsG)}g carbs` : null,
-        suppMacros.fatG > 0 ? `+${r1(suppMacros.fatG)}g fat` : null,
-        suppMacros.sugarG > 0 ? `+${r1(suppMacros.sugarG)}g sugar` : null,
-        suppMacros.sodiumMg > 0 ? `+${Math.round(suppMacros.sodiumMg)}mg sodium` : null,
-      ].filter((p): p is string => p !== null)
-    : [];
-
   return (
     <div>
       <div className="row between">
@@ -153,69 +139,52 @@ export default function NutritionPage() {
       </div>
       {error && <p className="error-text">{error}</p>}
 
+      {/* Goal tiles double as the day-vs-goals view: value / goal, a slim
+          progress bar (plain divs — theme tokens only), and remaining/over. */}
       <div className="grid cols-4">
         {tiles.map((t) => {
           const over = t.goal > 0 && Number(t.value) > t.goal;
           const remaining = r1(t.goal - Number(t.value));
+          const pct =
+            t.goal > 0 ? Math.max(0, Math.min(100, (Number(t.value) / t.goal) * 100)) : 0;
+          const barColor = over
+            ? t.overIsGood
+              ? "var(--status-good)"
+              : "var(--series-4)"
+            : "var(--accent)";
           return (
-            <StatTile
-              key={t.label}
-              label={t.label}
-              value={`${t.value} / ${t.goal}`}
-              delta={
-                t.goal > 0 ? (over ? `${r1(-remaining)} over goal` : `${remaining} left`) : undefined
-              }
-              deltaDirection={over ? (t.overIsGood ? "up" : "down") : "flat"}
-            />
-          );
-        })}
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        <EnergyCard energy={energy} date={date} />
-      </div>
-
-      <div className="grid cols-2" style={{ marginTop: 14 }}>
-        <div className="card">
-          <h3>Today vs goals — {date}</h3>
-          {goals && totals ? (
-            <div className="stack">
-              <Meter
-                label="Calories"
-                percent={(totals.calories / Math.max(1, goals.calorieGoal)) * 100}
-                detail={`${Math.round(totals.calories)} / ${goals.calorieGoal} kcal`}
-              />
-              <Meter
-                label="Protein"
-                percent={(totals.proteinG / Math.max(1, goals.proteinGoalG)) * 100}
-                detail={`${r1(totals.proteinG)} / ${goals.proteinGoalG} g`}
-              />
-              <Meter
-                label="Carbs"
-                percent={(totals.carbsG / Math.max(1, goals.carbsGoalG)) * 100}
-                detail={`${r1(totals.carbsG)} / ${goals.carbsGoalG} g`}
-              />
-              <Meter
-                label="Fat"
-                percent={(totals.fatG / Math.max(1, goals.fatGoalG)) * 100}
-                detail={`${r1(totals.fatG)} / ${goals.fatGoalG} g`}
-              />
-              <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
-                Fiber {r1(totals.fiberG)}g · Sugar {r1(totals.sugarG)}g · Sodium{" "}
-                {Math.round(totals.sodiumMg)}mg
-              </p>
-              {suppMacros && suppParts.length > 0 && (
-                <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
-                  incl. {suppParts.join(" · ")} from {suppMacros.count} supplement
-                  {suppMacros.count === 1 ? "" : "s"} taken
-                </p>
+            <div key={t.label} className="card stat-tile">
+              <span className="label">{t.label}</span>
+              <span className="value">
+                {t.value} / {t.goal}
+              </span>
+              <div
+                aria-hidden
+                style={{
+                  height: 5,
+                  borderRadius: 3,
+                  margin: "3px 0",
+                  background: "color-mix(in srgb, var(--ink) 8%, transparent)",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${pct}%`,
+                    height: "100%",
+                    borderRadius: 3,
+                    background: barColor,
+                  }}
+                />
+              </div>
+              {t.goal > 0 && (
+                <span className={`delta ${over ? (t.overIsGood ? "up" : "down") : ""}`}>
+                  {over ? `${r1(-remaining)} over goal` : `${remaining} left`}
+                </span>
               )}
             </div>
-          ) : (
-            <p className="empty">Loading…</p>
-          )}
-        </div>
-        <WaterCard water={water} date={date} onChange={reload} />
+          );
+        })}
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -225,7 +194,17 @@ export default function NutritionPage() {
           onChange={reload}
           reloadKey={reloadKey}
           onAskCoach={setCoachDraft}
+          suppMacros={suppMacros}
         />
+      </div>
+
+      <div className="grid cols-2" style={{ marginTop: 14 }}>
+        <WaterCard water={water} date={date} onChange={reload} />
+        <WeightCard weight={weight} date={date} onChange={reload} />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <EnergyCard energy={energy} date={date} />
       </div>
 
       <h2 className="section-title">History</h2>
@@ -259,8 +238,6 @@ export default function NutritionPage() {
             ]}
           />
         </ChartCard>
-      </div>
-      <div className="grid cols-2" style={{ marginTop: 14 }}>
         <ChartCard title="Water — last 30 days" sub="Daily total vs your water goal">
           <HistoryBars
             data={waterData}
@@ -274,7 +251,6 @@ export default function NutritionPage() {
             }
           />
         </ChartCard>
-        <WeightCard weight={weight} date={date} onChange={reload} />
       </div>
 
       <h2 className="section-title">Assistant</h2>

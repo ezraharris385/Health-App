@@ -6,7 +6,7 @@ import { useState } from "react";
 import { nutritionApi, type WeightHistoryResponse } from "../../api/nutrition";
 import { LB } from "../../units";
 import { TrendLine } from "../../viz/ChartKit";
-import { fmtDay } from "./util";
+import { fmtDateShort, fmtDay } from "./util";
 
 export function WeightCard(props: {
   weight: WeightHistoryResponse | null;
@@ -58,10 +58,11 @@ export function WeightCard(props: {
         <h3>Weight — last 90 days</h3>
         {latest && (
           <span className="chip">
-            latest: {latest.weight} {unit} ({latest.date})
+            latest: {latest.weight} {unit} ({fmtDateShort(latest.date)})
           </span>
         )}
       </div>
+      {/* Quick entry stays ABOVE the chart/history — log first, browse second. */}
       <div className="row wrap" style={{ marginBottom: 10 }}>
         <input
           className="input"
@@ -77,7 +78,7 @@ export function WeightCard(props: {
           }}
         />
         <button className="btn primary" onClick={log} disabled={busy}>
-          Log for {props.date}
+          Log for {fmtDateShort(props.date)}
         </button>
         {wh?.weightGoal != null && (
           <span style={{ fontSize: 12, color: "var(--muted)" }}>
@@ -112,7 +113,7 @@ export function WeightCard(props: {
                 .reverse()
                 .map((e) => (
                   <tr key={e.id}>
-                    <td>{e.date}</td>
+                    <td>{fmtDateShort(e.date)}</td>
                     <td>
                       {e.weight} {unit}
                     </td>

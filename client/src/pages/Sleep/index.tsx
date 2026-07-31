@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SleepLog } from "@shared/types";
 import { sleepApi, type SleepHistoryResponse, type SleepStats } from "../../api/sleep";
+import { ApiError } from "../../api/http";
 import { AgentChat } from "../../components/AgentChat";
 import { ChartCard, HistoryBars, StatTile } from "../../viz/ChartKit";
 
@@ -35,6 +36,10 @@ function fmtDate(dateStr: string): string {
     month: "short",
     day: "numeric",
   });
+}
+
+function nightsLabel(n: number): string {
+  return `${n} night${n === 1 ? "" : "s"}`;
 }
 
 /** ISO timestamp -> value for <input type="datetime-local"> */
@@ -73,6 +78,8 @@ function defaultFormState(): FormState {
   };
 }
 
+const RECENT_COLLAPSED = 5;
+
 export default function SleepPage() {
   const [open, setOpen] = useState<SleepLog | null>(null);
   const [logs, setLogs] = useState<SleepLog[]>([]);
@@ -86,6 +93,12 @@ export default function SleepPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState>(defaultFormState);
+  const [showAllNights, setShowAllNights] = useState(false);
+
+  // The log just closed by "I'm awake" — offers optional 1-5 quality chips.
+  const [justWoke, setJustWoke] = useState<SleepLog | null>(null);
+  // Wake hit the "a completed log already exists for today" conflict.
+  const [wakeConflict, setWakeConflict] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -132,8 +145,48 @@ export default function SleepPage() {
     }
   }
 
-  const goToBed = () => run(() => sleepApi.goToBed());
-  const wakeUp = () => run(() => sleepApi.wake());
+  function goToBed() {
+    setJustWoke(null);
+    setWakeConflict(false);
+    run(() => sleepApi.goToBed());
+  }
+
+  async function wakeUp() {
+    setBusy(true);
+    setError(null);
+    try {
+      const closed = await sleepApi.wake();
+      setJustWoke(closed);
+      setWakeConflict(false);
+      await reload();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && /already exists/i.test(e.message)) {
+        // Today's night is already logged — offer a one-tap discard instead of
+        // the raw error.
+        setWakeConflict(true);
+      } else {
+        setError(e instanceof Error ? e.message : "Request failed");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Delete the open timer ("tapped by mistake" / duplicate-night discard). */
+  function discardOpenLog() {
+    if (!open) return;
+    const id = open.id;
+    setWakeConflict(false);
+    run(() => sleepApi.deleteLog(id));
+  }
+
+  /** Optional quality rating right after waking — patches the closed log. */
+  function rateJustWoke(quality: number) {
+    if (!justWoke) return;
+    const id = justWoke.id;
+    setJustWoke(null);
+    run(() => sleepApi.updateLog(id, { quality }));
+  }
 
   function openAddForm() {
     setEditingId(null);
@@ -179,13 +232,17 @@ export default function SleepPage() {
 
   function removeLog(log: SleepLog) {
     if (!window.confirm(`Delete the sleep log for ${fmtDate(log.date)}?`)) return;
-    run(() => sleepApi.deleteLog(log.id));
+    run(async () => {
+      await sleepApi.deleteLog(log.id);
+      closeForm();
+    });
   }
 
   // ---- derived --------------------------------------------------------------
 
   const lastNight = useMemo(() => logs.find((l) => l.durationHours != null) ?? null, [logs]);
   const target = stats?.targetHours ?? history?.targetHours ?? 8;
+  const nights = stats?.nightsLogged ?? 0;
 
   const sleepingHours = open ? (nowTs - new Date(open.bedTime).getTime()) / 3_600_000 : 0;
 
@@ -210,7 +267,7 @@ export default function SleepPage() {
 
   const driftDelta = (() => {
     if (!stats || stats.bedtimeDriftMinutes == null) {
-      return stats ? { text: `${stats.nightsLogged} nights logged`, dir: "flat" as const } : undefined;
+      return stats ? { text: `${nightsLabel(stats.nightsLogged)} logged`, dir: "flat" as const } : undefined;
     }
     const d = stats.bedtimeDriftMinutes;
     if (Math.abs(d) < 5) return { text: "bedtime steady week over week", dir: "up" as const };
@@ -219,6 +276,8 @@ export default function SleepPage() {
       dir: d > 0 ? ("down" as const) : ("up" as const),
     };
   })();
+
+  const visibleLogs = showAllNights ? logs : logs.slice(0, RECENT_COLLAPSED);
 
   if (loading) return <p className="empty">Loading sleep data…</p>;
 
@@ -245,23 +304,76 @@ export default function SleepPage() {
               >
                 I'm awake
               </button>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>
-                Closing the log files the night under today and computes the duration.
-              </span>
+              {wakeConflict ? (
+                <div className="stack" style={{ alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, color: "var(--ink-2)" }}>
+                    Today's night is already logged — this timer looks like a stray.
+                  </span>
+                  <button className="btn small danger" onClick={discardOpenLog} disabled={busy}>
+                    Discard this timer
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                    Closing the log files the night under today and computes the duration.
+                  </span>
+                  <button
+                    onClick={discardOpenLog}
+                    disabled={busy}
+                    style={{
+                      font: "inherit",
+                      fontSize: 12,
+                      color: "var(--muted)",
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Cancel — tapped by mistake
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <div className="stack" style={{ alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 13, color: "var(--ink-2)" }}>
-                Heading to sleep? Start the timer — tap again when you wake up.
-              </span>
-              <button
-                className="btn primary"
-                style={{ fontSize: 18, padding: "14px 48px", borderRadius: 12 }}
-                onClick={goToBed}
-                disabled={busy}
-              >
-                Going to bed
-              </button>
+              {justWoke ? (
+                <>
+                  <span className="chip">Logged {fmtHours(justWoke.durationHours)} — good morning</span>
+                  <span style={{ fontSize: 13, color: "var(--ink-2)" }}>How was it? (optional)</span>
+                  <div className="row" style={{ gap: 8, justifyContent: "center" }}>
+                    {[1, 2, 3, 4, 5].map((q) => (
+                      <button
+                        key={q}
+                        className="btn small"
+                        style={{ minWidth: 42 }}
+                        onClick={() => rateJustWoke(q)}
+                        disabled={busy}
+                        aria-label={`Rate last night ${q} out of 5`}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                  <span style={{ fontSize: 12, color: "var(--muted)" }}>1 = rough · 5 = great</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 13, color: "var(--ink-2)" }}>
+                    Heading to sleep? Start the timer — tap again when you wake up.
+                  </span>
+                  <button
+                    className="btn primary"
+                    style={{ fontSize: 18, padding: "14px 48px", borderRadius: 12 }}
+                    onClick={goToBed}
+                    disabled={busy}
+                  >
+                    Going to bed
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -277,10 +389,12 @@ export default function SleepPage() {
           <StatTile
             label="Last night quality"
             value={lastNight?.quality != null ? `${lastNight.quality}/5` : "—"}
-            delta={stats?.avgQuality != null ? `30-day avg ${stats.avgQuality}/5` : "not rated yet"}
+            delta={
+              stats?.avgQuality != null ? `avg ${stats.avgQuality}/5 over ${nightsLabel(nights)}` : "not rated yet"
+            }
           />
           <StatTile
-            label="Avg bedtime (30d)"
+            label={`Avg bedtime (${nightsLabel(nights)})`}
             value={fmtHHMM(stats?.avgBedTime)}
             delta={
               stats?.bedtimeStdDevMinutes != null
@@ -289,7 +403,7 @@ export default function SleepPage() {
             }
           />
           <StatTile
-            label="Avg wake time (30d)"
+            label={`Avg wake time (${nightsLabel(nights)})`}
             value={fmtHHMM(stats?.avgWakeTime)}
             delta={driftDelta?.text}
             deltaDirection={driftDelta?.dir}
@@ -301,7 +415,7 @@ export default function SleepPage() {
           title="Sleep duration — last 30 days"
           sub={
             stats && stats.nightsLogged > 0
-              ? `${stats.nightsLogged} nights logged · avg ${fmtHours(stats.avgDurationHours)}${
+              ? `${nightsLabel(stats.nightsLogged)} logged · avg ${fmtHours(stats.avgDurationHours)}${
                   stats.targetAdherencePct != null ? ` · ${stats.targetAdherencePct}% of nights hit the target` : ""
                 }`
               : "Nothing logged yet — bars appear as you track nights."
@@ -317,7 +431,7 @@ export default function SleepPage() {
         </ChartCard>
 
         <div className="grid cols-2" style={{ alignItems: "start" }}>
-          {/* Recent log table + inline add/edit form */}
+          {/* Recent log list + inline add/edit form */}
           <div className="card">
             <div className="row between">
               <h3>Recent nights</h3>
@@ -377,13 +491,24 @@ export default function SleepPage() {
                     />
                   </label>
                 </div>
-                <div className="row">
-                  <button className="btn primary" onClick={saveForm} disabled={busy}>
-                    {editingId != null ? "Save changes" : "Add night"}
-                  </button>
-                  <button className="btn" onClick={closeForm} disabled={busy}>
-                    Cancel
-                  </button>
+                <div className="row between" style={{ gap: 8 }}>
+                  <div className="row" style={{ gap: 8 }}>
+                    <button className="btn primary" onClick={saveForm} disabled={busy}>
+                      {editingId != null ? "Save changes" : "Add night"}
+                    </button>
+                    <button className="btn" onClick={closeForm} disabled={busy}>
+                      Cancel
+                    </button>
+                  </div>
+                  {editingId != null &&
+                    (() => {
+                      const editing = logs.find((l) => l.id === editingId);
+                      return editing ? (
+                        <button className="btn small danger" onClick={() => removeLog(editing)} disabled={busy}>
+                          Delete night
+                        </button>
+                      ) : null;
+                    })()}
                 </div>
               </div>
             )}
@@ -393,51 +518,54 @@ export default function SleepPage() {
                 No sleep logged yet. Tap "Going to bed" tonight, or use "Add a night" to backfill.
               </p>
             ) : (
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Bed</th>
-                    <th>Wake</th>
-                    <th>Duration</th>
-                    <th>Quality</th>
-                    <th>Notes</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.slice(0, 14).map((l) => (
-                    <tr key={l.id}>
-                      <td>{fmtDate(l.date)}</td>
-                      <td>{fmtClock(l.bedTime)}</td>
-                      <td>{l.wakeTime ? fmtClock(l.wakeTime) : <span className="chip">sleeping</span>}</td>
-                      <td>{fmtHours(l.durationHours)}</td>
-                      <td>{l.quality != null ? `${l.quality}/5` : "—"}</td>
-                      <td
-                        style={{
-                          maxWidth: 140,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                        title={l.notes}
-                      >
-                        {l.notes}
-                      </td>
-                      <td>
-                        <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
-                          <button className="btn small" onClick={() => openEditForm(l)} disabled={busy}>
-                            Edit
-                          </button>
-                          <button className="btn small danger" onClick={() => removeLog(l)} disabled={busy}>
-                            Delete
-                          </button>
+              <div className="stack" style={{ gap: 0 }}>
+                {visibleLogs.map((l, i) => (
+                  <div
+                    key={l.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 0",
+                      borderBottom: i === visibleLogs.length - 1 ? "none" : "1px solid var(--grid)",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+                      <span>
+                        {fmtDate(l.date)} · {fmtClock(l.bedTime)} →{" "}
+                        {l.wakeTime ? fmtClock(l.wakeTime) : "sleeping"} · {fmtHours(l.durationHours)} ·{" "}
+                        {l.quality != null ? `${l.quality}/5` : "—"}
+                      </span>
+                      {l.notes && (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "var(--muted)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={l.notes}
+                        >
+                          {l.notes}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      )}
+                    </div>
+                    <button className="btn small" onClick={() => openEditForm(l)} disabled={busy}>
+                      Edit
+                    </button>
+                  </div>
+                ))}
+                {logs.length > RECENT_COLLAPSED && (
+                  <button
+                    className="btn small"
+                    style={{ alignSelf: "flex-start", marginTop: 10 }}
+                    onClick={() => setShowAllNights((v) => !v)}
+                  >
+                    {showAllNights ? `Show latest ${RECENT_COLLAPSED}` : `Show all ${logs.length}`}
+                  </button>
+                )}
+              </div>
             )}
           </div>
 

@@ -27,6 +27,9 @@ export function AgentChat(props: {
   onReply?: () => void;
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  // When the coach is disabled the card collapses to a one-liner; this lets the
+  // user peek at the (empty) chat UI anyway. Presentation-only state.
+  const [expanded, setExpanded] = useState(false);
   const [conversations, setConversations] = useState<AgentConversation[]>([]);
   // Start from the agent's last-selected conversation — another page's card for
   // the same agent may have consumed a turn (and its outcome) since we unmounted.
@@ -150,60 +153,71 @@ export function AgentChat(props: {
         (turn.sinceMessageId === undefined || m.id > turn.sinceMessageId),
     );
 
+  // Disabled coach: collapse to a header + one-liner unless the user expands.
+  const disabled = enabled === false;
+  const showChatUi = !disabled || expanded;
+
   return (
     <div className="card">
       <div className="row between">
         <h3>{props.title}</h3>
-        <div className="row">
-          <select
-            className="input chat-conv-select"
-            disabled={busy}
-            value={conversationId ?? ""}
-            onChange={(e) =>
-              setConversationId(e.target.value ? Number(e.target.value) : undefined)
-            }
+        {disabled ? (
+          <button
+            className="btn small"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
           >
-            <option value="">New conversation</option>
-            {conversations.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-              </option>
-            ))}
-          </select>
-          {conversationId && (
-            <button
-              className="btn small danger"
+            {expanded ? "Hide ▴" : "Show ▾"}
+          </button>
+        ) : (
+          <div className="row">
+            <select
+              className="input chat-conv-select"
               disabled={busy}
-              onClick={async () => {
-                try {
-                  await agentsApi.deleteConversation(conversationId);
-                  setConversationId(undefined);
-                  setError(null);
-                  refreshConversations();
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : "Failed to delete conversation");
-                }
-              }}
+              value={conversationId ?? ""}
+              onChange={(e) =>
+                setConversationId(e.target.value ? Number(e.target.value) : undefined)
+              }
             >
-              Delete
-            </button>
-          )}
-        </div>
+              <option value="">New conversation</option>
+              {conversations.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
+            {conversationId && (
+              <button
+                className="btn small danger"
+                disabled={busy}
+                onClick={async () => {
+                  if (!window.confirm("Delete this conversation and its messages?")) return;
+                  try {
+                    await agentsApi.deleteConversation(conversationId);
+                    setConversationId(undefined);
+                    setError(null);
+                    refreshConversations();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Failed to delete conversation");
+                  }
+                }}
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {enabled === false && (
-        <p className="empty">
-          {import.meta.env.VITE_LOCAL_MODE === "1" ? (
-            <>AI assistants are disabled — add your Anthropic API key in Settings to enable them.</>
-          ) : (
-            <>
-              AI assistants are disabled — set <code>ANTHROPIC_API_KEY</code> in <code>.env</code>{" "}
-              and restart the server.
-            </>
-          )}
+      {disabled && (
+        <p className="card-sub">
+          {import.meta.env.VITE_LOCAL_MODE === "1"
+            ? "Coach is off — add your Anthropic API key in Settings."
+            : "Coach is off — set ANTHROPIC_API_KEY on the server."}
         </p>
       )}
 
+      {showChatUi && (
       <div className="chat">
         <div className="chat-log" ref={logRef}>
           {messages.length === 0 && !busy && (
@@ -241,6 +255,7 @@ export function AgentChat(props: {
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 }

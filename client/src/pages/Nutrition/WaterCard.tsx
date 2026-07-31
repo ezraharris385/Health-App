@@ -7,6 +7,7 @@ import { useState } from "react";
 import { nutritionApi, type WaterSummary } from "../../api/nutrition";
 import { FLOZ, flozFromMl, mlFromFloz } from "../../units";
 import { Meter } from "../../viz/ChartKit";
+import { fmtDateShort } from "./util";
 
 // Rounded ml for the imperial quick-add sizes (8 fl oz ≈ 237 ml, 16 fl oz ≈ 473 ml).
 const CUP_ML = 237;
@@ -66,7 +67,7 @@ export function WaterCard(props: {
 
   return (
     <div className="card">
-      <h3>Water — {props.date}</h3>
+      <h3>Water — {fmtDateShort(props.date)}</h3>
       <Meter
         label="Total"
         percent={goalMl > 0 ? (totalMl / goalMl) * 100 : 0}

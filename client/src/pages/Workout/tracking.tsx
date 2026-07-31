@@ -289,7 +289,7 @@ const FIELD_META: Record<
   timeMin: { label: "Minutes", ph: "min", width: 78, min: 0, step: 0.5 },
   distanceMi: { label: "Distance (mi)", ph: "mi", width: 92, min: 0, step: 0.1 },
   count: { label: "Count", ph: "count", width: 80, min: 0 },
-  rpe: { label: "Intensity", ph: "RPE", width: 68, select: true },
+  rpe: { label: "Effort (1-10)", ph: "RPE", width: 132, select: true },
 };
 
 /**
@@ -325,7 +325,7 @@ export function TrackingInputs(props: {
         disabled={disabled}
         onChange={(e) => onChange({ [k]: e.target.value } as Partial<TrackDraft>)}
       >
-        <option value="">— RPE</option>
+        <option value="">Effort 1-10</option>
         {Array.from({ length: 10 }, (_, n) => n + 1).map((n) => (
           <option key={n} value={n}>
             {n}
