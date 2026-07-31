@@ -147,6 +147,11 @@ export function FoodPicker(props: {
     try {
       const food = await nutritionApi.createFood(input);
       await loadFoods();
+      // Clear the search along with selecting the new food: a stale query that
+      // still matches exactly one OTHER food would let the single-match
+      // auto-pick effect above instantly overwrite this selection (and the
+      // user would log the wrong food).
+      setQuery("");
       setSelectedId(food.id);
       setShowCreate(false);
       setShowMicros(false);

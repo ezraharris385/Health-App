@@ -54,13 +54,15 @@ export function PerformanceCard(props: {
   const hasTimed = (perf?.points ?? []).some((p) => p.bestDurationSeconds !== null);
 
   return (
-    <ChartCard
-      title="Exercise progress"
-      sub="Training volume and best set over the last 180 days"
-      actions={
+    <ChartCard title="Exercise progress" sub="Training volume and best set over the last 180 days">
+      {/* The picker gets its own row below the caption: as a header `actions`
+          control it wrapped at phone width and collided with the .card-sub
+          text (which pulls up with a negative margin). */}
+      <div className="row" style={{ marginBottom: 10 }}>
         <select
           className="input"
-          style={{ width: 190, padding: "3px 8px", fontSize: 12 }}
+          aria-label="Exercise"
+          style={{ width: "100%", maxWidth: 280, padding: "3px 8px", fontSize: 12 }}
           value={selectedId}
           onChange={(e) => setSelectedId(e.target.value)}
         >
@@ -71,8 +73,7 @@ export function PerformanceCard(props: {
             </option>
           ))}
         </select>
-      }
-    >
+      </div>
       {error && <p className="error-text">{error}</p>}
       {exercises.length === 0 ? (
         <p className="empty">No exercises yet — add some in the library or ask the coach for a plan.</p>

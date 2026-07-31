@@ -226,7 +226,9 @@ export function CardioCard(props: { cardio: CardioSession[]; onChange: () => voi
 
       <div className="stack">
         <div className="row wrap">
-          <label className="field" style={{ width: 130 }}>
+          {/* 150px min: at 130px the native date input clipped its value to
+              "07/31/20" next to the calendar icon. */}
+          <label className="field" style={{ width: 150 }}>
             Date
             <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </label>

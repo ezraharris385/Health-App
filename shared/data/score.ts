@@ -47,16 +47,19 @@ export function computeDailyScore(date: string): DailyScore {
   if (n.logs.length === 0) {
     breakdown.nutrition = "No food logged.";
   } else {
-    // Calories: an unfinished day is never punished for being under goal —
-    // while intake is at or below 110% of goal, score is simply progress toward
-    // the goal (100 once within ~90% of it). Above 110% the original over-goal
-    // slide applies (100 at 110%, reaching 0 at 150% of goal).
+    // Calories — date-aware. TODAY is an unfinished day and is never punished
+    // for being under goal: while intake is at or below 110% of goal, score is
+    // simply progress toward the goal (100 once within ~90% of it). FINISHED
+    // days keep the original adherence band — 100 within ±10% of goal, sliding
+    // to 0 at ±50% — so history is never silently re-scored by the mid-day
+    // rule. Over-goal (>110%) both paths share the same slide: 100 at 110%,
+    // reaching 0 at 150% of goal.
     let calScore: number;
-    if (n.totals.calories <= goals.calorieGoal * 1.1) {
+    if (date === todayStr() && n.totals.calories <= goals.calorieGoal * 1.1) {
       calScore = Math.min(100, (n.totals.calories / (0.9 * goals.calorieGoal)) * 100);
     } else {
-      const overRatio = (n.totals.calories - goals.calorieGoal) / goals.calorieGoal;
-      calScore = Math.max(0, 100 - (overRatio - 0.1) * 250);
+      const calRatio = Math.abs(n.totals.calories - goals.calorieGoal) / goals.calorieGoal;
+      calScore = calRatio <= 0.1 ? 100 : Math.max(0, 100 - (calRatio - 0.1) * 250);
     }
     // Protein: ratio to goal, capped at 100.
     const proteinScore = Math.min(100, (n.totals.proteinG / goals.proteinGoalG) * 100);
@@ -147,6 +150,8 @@ function firstLoggedDate(): string | null {
          UNION ALL SELECT MIN(date) FROM sleep_logs
          UNION ALL SELECT MIN(date) FROM mobility_sessions
          UNION ALL SELECT MIN(date) FROM supplement_logs
+         UNION ALL SELECT MIN(date) FROM weight_logs
+         UNION ALL SELECT MIN(date) FROM mobility_assessments
        )`,
     )
     .get() as { d: string | null } | undefined;

@@ -36,6 +36,14 @@ export function milesFromMeters(m: number): number {
   return miFromKm(m / 1000);
 }
 
+/** "2026-07-30" -> "Jul 30" — the app's compact table/chip date (matches the
+ *  Cardio recent-log table); keep the full ISO date in a title tooltip. */
+export function fmtShortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 /** Seconds → compact "m:ss" (or "45s" under a minute). */
 export function fmtSeconds(sec: number): string {
   const s = Math.max(0, Math.round(sec));

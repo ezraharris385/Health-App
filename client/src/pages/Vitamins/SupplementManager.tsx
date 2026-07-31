@@ -33,6 +33,17 @@ interface FormState {
 const fmtAmt = (n: number) =>
   Math.abs(n) >= 100 ? String(Math.round(n)) : String(Math.round(n * 10) / 10);
 
+/** Ultra-compact library-cell version: first nutrient label + "+N more" (full
+ *  amounts live in the row tooltip). Keeps the phone table narrow enough that
+ *  Status/Actions peek into view instead of sitting fully offscreen. */
+function contentsShort(nutrients: MicroMap): string {
+  const labels = Object.entries(nutrients)
+    .filter(([, v]) => typeof v === "number" && v > 0)
+    .map(([k]) => NUTRIENT_BY_KEY[k]?.label ?? k);
+  if (labels.length === 0) return "no nutrients set";
+  return labels[0] + (labels.length > 1 ? ` +${labels.length - 1} more` : "");
+}
+
 export function contentsSummary(nutrients: MicroMap, max = 4): string {
   const parts = Object.entries(nutrients)
     .filter(([, v]) => typeof v === "number" && v > 0)
@@ -160,7 +171,7 @@ export function SupplementManager(props: {
               <th>Name</th>
               <th>Per-dose contents</th>
               <th>Status</th>
-              <th style={{ width: 220 }}>Actions</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -169,20 +180,56 @@ export function SupplementManager(props: {
                 <td>
                   <div style={{ fontWeight: 600 }}>{s.name}</div>
                   {s.notes && (
-                    <div style={{ fontSize: 12, color: "var(--muted)" }}>{s.notes}</div>
+                    <div
+                      title={s.notes}
+                      style={{
+                        fontSize: 12,
+                        color: "var(--muted)",
+                        maxWidth: 130,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {s.notes}
+                    </div>
                   )}
                 </td>
-                <td style={{ fontSize: 12, color: "var(--ink-2)" }}>
-                  <div>{contentsSummary(s.nutrients)}</div>
+                {/* Clamped one-nutrient summary + "+N more": the full
+                    comma-joined list made this column ~500px wide, pushing
+                    Status and every action offscreen at phone width. Full
+                    contents stay in the tooltip. */}
+                <td
+                  style={{ fontSize: 12, color: "var(--ink-2)" }}
+                  title={[contentsSummary(s.nutrients, Infinity), macrosSummary(s)]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
+                  <div
+                    style={{ maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis" }}
+                  >
+                    {contentsShort(s.nutrients)}
+                  </div>
                   {macrosSummary(s) && (
-                    <div style={{ color: "var(--muted)", marginTop: 2 }}>{macrosSummary(s)}</div>
+                    <div
+                      style={{
+                        color: "var(--muted)",
+                        marginTop: 2,
+                        maxWidth: 150,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {macrosSummary(s)}
+                    </div>
                   )}
                 </td>
                 <td>
                   <span className="chip">{s.active ? "active" : "inactive"}</span>
                 </td>
                 <td>
-                  <div className="row">
+                  {/* Buttons stay on one line — letting them wrap stacked them
+                      into ~140px-tall mostly-empty rows. */}
+                  <div className="row" style={{ flexWrap: "nowrap" }}>
                     <button
                       className="btn small"
                       disabled={busy}

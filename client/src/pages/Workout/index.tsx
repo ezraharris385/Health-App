@@ -86,7 +86,9 @@ export default function WorkoutPage() {
       </p>
       {error && <p className="error-text">{error}</p>}
 
-      <div className="grid cols-3">
+      {/* auto-fit minmax like the Dashboard energy tiles: 2-per-row on a
+          phone (cols-3 would stack full-width there), 3-across on desktop. */}
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
         <StatTile label="Lifting sessions this week" value={weekStats.lifting} />
         <StatTile
           label="Volume this week"

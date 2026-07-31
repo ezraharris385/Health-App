@@ -132,28 +132,33 @@ function PlanView(props: {
         >
           {expanded ? "▾" : "▸"} {plan.name}
         </button>
-        <div className="row" style={{ gap: 6 }}>
+        <div className="row wrap" style={{ gap: 6 }}>
           {plan.goal && <span className="chip">{plan.goal}</span>}
           <span className="chip">{plan.days.length} days</span>
-          <button
-            className="btn small"
-            disabled={busy}
-            onClick={() => act(() => workoutApi.updatePlan(plan.id, { archived: true }))}
-            title="Archived plans drop out of the weekly schedule"
-          >
-            Archive
-          </button>
-          <button
-            className="btn small danger"
-            disabled={busy}
-            onClick={() => {
-              if (window.confirm(`Delete plan "${plan.name}" and all its days?`)) {
-                act(() => workoutApi.deletePlan(plan.id));
-              }
-            }}
-          >
-            ×
-          </button>
+          {/* Chips may wrap at phone width, but Archive + × stay glued
+              together — a lone red × on its own line reads as a broken
+              control. */}
+          <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+            <button
+              className="btn small"
+              disabled={busy}
+              onClick={() => act(() => workoutApi.updatePlan(plan.id, { archived: true }))}
+              title="Archived plans drop out of the weekly schedule"
+            >
+              Archive
+            </button>
+            <button
+              className="btn small danger"
+              disabled={busy}
+              onClick={() => {
+                if (window.confirm(`Delete plan "${plan.name}" and all its days?`)) {
+                  act(() => workoutApi.deletePlan(plan.id));
+                }
+              }}
+            >
+              ×
+            </button>
+          </div>
         </div>
       </div>
 

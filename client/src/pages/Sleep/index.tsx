@@ -27,7 +27,11 @@ function fmtHHMM(hhmm: string | null | undefined): string {
   const [h, m] = hhmm.split(":").map(Number);
   const d = new Date();
   d.setHours(h, m, 0, 0);
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  // Non-breaking space before AM/PM: half-width stat tiles otherwise wrap the
+  // value to "10:34" / "PM".
+  return d
+    .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    .replace(/\s/g, "\u00a0");
 }
 
 function fmtDate(dateStr: string): string {

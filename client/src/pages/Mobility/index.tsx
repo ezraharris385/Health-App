@@ -41,6 +41,14 @@ const dirLabel = (d: MobilityMetric["direction"]) =>
 
 const truncate = (s: string, max = 64) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
+/** "2026-07-30" -> "Jul 30" — compact table date matching Cardio's recent-log
+ *  table; the full ISO date stays in the cell's title tooltip. */
+function fmtShortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export default function MobilityPage() {
   const [summary, setSummary] = useState<MobilityDaySummary | null>(null);
   const [stretches, setStretches] = useState<Stretch[]>([]);
@@ -143,7 +151,9 @@ export default function MobilityPage() {
       </p>
       {error && <p className="error-text">{error}</p>}
 
-      <div className="grid cols-3">
+      {/* auto-fit minmax like the Dashboard energy tiles: 2-per-row on a
+          phone (cols-3 would stack full-width there), 3-across on desktop. */}
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
         <StatTile
           label="Sessions today"
           value={(summary?.sessions.length ?? 0) > 0 ? summary!.sessions.length : "— none yet"}
@@ -652,7 +662,7 @@ function MetricsCard(props: {
           <input
             className="input"
             style={{ flex: 1, minWidth: 140 }}
-            placeholder="Description (e.g. how far past my toes I reach)"
+            placeholder="Description (optional)"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -1756,7 +1766,7 @@ function SessionsTableCard(props: {
           <tbody>
             {props.sessions.map((s) => (
               <tr key={s.id}>
-                <td>{s.date}</td>
+                <td title={s.date}>{fmtShortDate(s.date)}</td>
                 <td>
                   <span className="chip">{s.kind}</span>
                 </td>

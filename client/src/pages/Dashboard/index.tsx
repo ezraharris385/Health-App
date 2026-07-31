@@ -25,9 +25,10 @@ function yesterdayStr(date: string): string {
 }
 
 /**
- * Compact score tile: label + number + one-line note. The day is still in
+ * Compact score tile: label + number + short note. The day is still in
  * progress, so the value renders in neutral ink/accent — never a red "failing
- * grade" mid-day.
+ * grade" mid-day. Notes always wrap: at half-tile width an ellipsized
+ * one-liner cuts off exactly the figures the note exists to show.
  */
 function ScoreTile(props: {
   label: string;
@@ -35,7 +36,6 @@ function ScoreTile(props: {
   note?: string;
   valueColor?: string;
   valueSize?: number;
-  noteWrap?: boolean;
 }) {
   return (
     <div className="card stat-tile">
@@ -44,18 +44,34 @@ function ScoreTile(props: {
         {props.value}
       </span>
       {props.note && (
-        <span
-          className="delta"
-          title={props.note}
-          style={
-            props.noteWrap
-              ? undefined
-              : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }
-          }
-        >
+        <span className="delta" title={props.note}>
           {props.note}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * Energy stat tile: kcal value with a smaller, non-breaking unit suffix so
+ * "1,836 kcal" never wraps to "1836" / "kcal" in a half-width tile.
+ */
+function KcalTile(props: { label: string; kcal: number; delta?: string; hero?: boolean }) {
+  return (
+    <div className="card stat-tile">
+      <span className="label">{props.label}</span>
+      <span
+        className="value"
+        style={{
+          fontSize: props.hero ? 30 : 24,
+          whiteSpace: "nowrap",
+          color: props.hero ? "var(--accent)" : undefined,
+        }}
+      >
+        {Math.round(props.kcal).toLocaleString("en-US")}
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--muted)" }}> kcal</span>
+      </span>
+      {props.delta && <span className="delta">{props.delta}</span>}
     </div>
   );
 }
@@ -165,6 +181,24 @@ export default function DashboardPage() {
   // Mid-day energy framing: food so far vs the full-day burn estimate.
   const roomLeft = Math.round(energy.totalBurn - energy.intakeCalories);
 
+  // Compact per-tile notes: the score engine's full-sentence breakdown strings
+  // ellipsize away their figures at half-tile width, so restate the same facts
+  // (same numbers, same neutral mid-day framing) short enough to wrap cleanly.
+  const workoutNote =
+    w.sessionCount + w.cardioCount > 0
+      ? `${w.sessionCount} lifting · ${w.cardioCount} cardio`
+      : w.status === "scheduled"
+        ? "Scheduled — not logged yet"
+        : "Nothing logged yet";
+  const waterNote = `water ${Math.round(flozFromMl(wa.totalMl))}/${Math.round(
+    flozFromMl(wa.goalMl),
+  )} fl oz`;
+  const nutritionNote =
+    nu.mealsLogged > 0
+      ? `${nu.calories}/${nu.calorieGoal} kcal · protein ${nu.proteinG}/${nu.proteinGoalG} g · ${waterNote}`
+      : `No food yet · ${waterNote}`;
+  const vitaminsNote = `${vi.averageCoveragePercent}% avg coverage · ${vi.nutrientsTracked} nutrients tracked`;
+
   return (
     <div>
       <h1 className="page-title">Dashboard</h1>
@@ -181,17 +215,16 @@ export default function DashboardPage() {
           valueColor="var(--accent)"
           valueSize={30}
           note={heroNote}
-          noteWrap
         />
         <ScoreTile
           label={`Workout · ${score.weights.workout}%`}
           value={score.workout}
-          note={score.breakdown.workout}
+          note={workoutNote}
         />
         <ScoreTile
           label={`Nutrition · ${score.weights.nutrition}%`}
           value={score.nutrition}
-          note={[score.breakdown.nutrition, score.breakdown.water].filter(Boolean).join(" ")}
+          note={nutritionNote}
         />
         <ScoreTile
           label={`Sleep · ${score.weights.sleep}%`}
@@ -201,7 +234,7 @@ export default function DashboardPage() {
         <ScoreTile
           label={`Vitamins · ${score.weights.vitamins}%`}
           value={score.vitamins}
-          note={score.breakdown.vitamins}
+          note={vitaminsNote}
         />
         <ScoreTile
           label={`Mobility · ${score.weights.mobility}%`}
@@ -393,37 +426,26 @@ export default function DashboardPage() {
             className="grid"
             style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
           >
-            <div className="card stat-tile">
-              <span className="label">
-                {roomLeft >= 0 ? "Room left today" : "Over your full-day burn"}
-              </span>
-              <span className="value" style={{ fontSize: 34, color: "var(--accent)" }}>
-                {Math.abs(roomLeft)} kcal
-              </span>
-              <span className="delta">food so far vs full-day burn (est.)</span>
-            </div>
-            <StatTile
-              label="Intake"
-              value={`${Math.round(energy.intakeCalories)} kcal`}
-              delta="food so far"
+            <KcalTile
+              label={roomLeft >= 0 ? "Room left today" : "Over your full-day burn"}
+              kcal={Math.abs(roomLeft)}
+              delta="food so far vs full-day burn (est.)"
+              hero
             />
-            <StatTile
+            <KcalTile label="Intake" kcal={energy.intakeCalories} delta="food so far" />
+            <KcalTile
               label="At rest + daily activity"
-              value={`${Math.round(energy.baselineBurn ?? 0)} kcal`}
+              kcal={energy.baselineBurn ?? 0}
               delta={`est.${energy.bmr != null ? ` — resting ${Math.round(energy.bmr)} kcal` : ""}${
                 energy.activityLevel
                   ? `, ${ACTIVITY_LABEL[energy.activityLevel] ?? energy.activityLevel}`
                   : ""
               }`}
             />
-            <StatTile
-              label="Exercise burn"
-              value={`${Math.round(energy.exerciseBurn)} kcal`}
-              delta="logged workouts"
-            />
-            <StatTile
+            <KcalTile label="Exercise burn" kcal={energy.exerciseBurn} delta="logged workouts" />
+            <KcalTile
               label="Full-day burn"
-              value={`${Math.round(energy.totalBurn)} kcal`}
+              kcal={energy.totalBurn}
               delta="at rest + activity + exercise (est.)"
             />
           </div>
@@ -444,16 +466,8 @@ export default function DashboardPage() {
               burn are shown below in the meantime.
             </p>
           </div>
-          <StatTile
-            label="Intake"
-            value={`${Math.round(energy.intakeCalories)} kcal`}
-            delta="food so far"
-          />
-          <StatTile
-            label="Exercise burn"
-            value={`${Math.round(energy.exerciseBurn)} kcal`}
-            delta="logged workouts"
-          />
+          <KcalTile label="Intake" kcal={energy.intakeCalories} delta="food so far" />
+          <KcalTile label="Exercise burn" kcal={energy.exerciseBurn} delta="logged workouts" />
         </div>
       )}
 

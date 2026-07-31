@@ -165,6 +165,11 @@ export function GuidedEntryCard(props: {
     [exercises, rows],
   );
   const filledCount = rows.filter((r) => draftHasValue(r.trackingType, r.draft)).length;
+  // Rows the user typed ANYTHING into. A half-filled row (e.g. weight with no
+  // reps) must keep Save enabled so clicking it reaches buildMeasure and
+  // surfaces the specific per-row error — a dead button plus the generic
+  // "fill in a row" hint would contradict the data the user just entered.
+  const touchedCount = rows.filter((r) => draftTouched(r.trackingType, r.draft)).length;
   const hasTemplateRows = rows.some((r) => r.template !== null);
 
   async function save() {
@@ -364,10 +369,10 @@ export function GuidedEntryCard(props: {
           </div>
 
           <div className="row wrap">
-            <button className="btn primary" disabled={busy || filledCount === 0} onClick={save}>
+            <button className="btn primary" disabled={busy || touchedCount === 0} onClick={save}>
               Save workout{filledCount > 0 ? ` (${filledCount})` : ""}
             </button>
-            {filledCount === 0 && rows.length > 0 && (
+            {touchedCount === 0 && rows.length > 0 && (
               <span style={{ fontSize: 12, color: "var(--muted)" }}>
                 Fill in what you did on at least one row.
               </span>

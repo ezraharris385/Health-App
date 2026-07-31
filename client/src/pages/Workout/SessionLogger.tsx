@@ -6,6 +6,7 @@ import {
   describeSetAuto,
   describeTarget,
   emptyDraft,
+  fmtShortDate,
   milesFromMeters,
   TrackingInputs,
   type TrackDraft,
@@ -422,7 +423,7 @@ export function RecentSessionsCard(props: { sessions: SessionFull[]; onChange: (
             <tbody>
               {recent.map((s) => (
                 <tr key={s.id}>
-                  <td>{s.date}</td>
+                  <td title={s.date}>{fmtShortDate(s.date)}</td>
                   <td>{s.name || "Workout"}</td>
                   <td>{s.sets.length}</td>
                   <td>{Math.round(volumeOf(s)).toLocaleString()}</td>
